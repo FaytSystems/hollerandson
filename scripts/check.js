@@ -55,13 +55,16 @@ assert.ok(app.includes("/api/customer/signup"), "Customer signup route is presen
 assert.ok(index.includes("customer-dashboard"), "Customer dashboard shell is present");
 assert.ok(index.includes("calendar-view"), "Calendar view controls are present");
 assert.ok(index.includes("preview-business-page"), "Business page preview button is present");
+assert.ok(index.includes("payment-request-form"), "Business payment request form is present");
 assert.ok(app.includes("openBusinessPreview"), "Business preview handler is present");
+assert.ok(app.includes("/api/business/payments"), "Business payment request API is wired in the client");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS subscriptions"), "D1 subscription table is present");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS stripe_events"), "D1 Stripe event idempotency table is present");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS business_email_settings"), "D1 business email settings table is present");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS email_messages"), "D1 mailbox message table is present");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS customer_accounts"), "D1 customer account table is present");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS customer_favorites"), "D1 customer favorites table is present");
+assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS payment_requests"), "D1 payment request table is present");
 assert.ok(schema.includes("art_demo_serpent"), "Demo gallery seed art is present");
 assert.ok(schema.includes("appt_demo_today_1"), "Demo calendar seed appointment is present");
 

@@ -98,6 +98,10 @@
         </article>
       </section>
 
+      <section class="payment-page" id="payment-page" hidden>
+        <div class="payment-receipt" id="payment-page-content"></div>
+      </section>
+
       <section class="hero" id="customer-portal" aria-label="Customer portal" hidden>
         <div class="hero-backdrop" aria-hidden="true"></div>
         <div class="hero-content">
@@ -245,6 +249,7 @@
             <button class="tab-button" data-tab="mailbox" type="button">Mailbox</button>
             <button class="tab-button" data-tab="profile" type="button">Studio page</button>
             <button class="tab-button" data-tab="art" type="button">Gallery upload</button>
+            <button class="tab-button" data-tab="payments" type="button">Payments</button>
             <button class="tab-button" data-tab="customers" type="button">Customers</button>
             <button class="tab-button" data-tab="subscription" type="button">Subscription</button>
           </div>
@@ -428,6 +433,37 @@
                 </thead>
                 <tbody id="customer-table"></tbody>
               </table>
+            </div>
+          </section>
+
+          <section class="tab-panel" id="tab-payments">
+            <div class="split-panel">
+              <form id="payment-request-form" class="mini-panel">
+                <div class="panel-title"><span>Charge for services</span></div>
+                <label><span>Customer name</span><input name="customerName" required></label>
+                <div class="form-row">
+                  <label><span>Email for invoice</span><input name="email" type="email" placeholder="customer@email.com"></label>
+                  <label><span>Phone</span><input name="phone" type="tel" placeholder="(555) 555-0101"></label>
+                </div>
+                <label><span>Service</span><input name="service" required placeholder="Deposit, consult, tattoo session"></label>
+                <div class="form-row">
+                  <label><span>Amount</span><input name="amount" type="number" min="1" step="0.01" required placeholder="75.00"></label>
+                  <label><span>Type</span><select name="requestType"><option value="in_person">In-person QR</option><option value="invoice">Email invoice</option></select></label>
+                </div>
+                <label><span>Appointment</span><select name="appointmentId" id="payment-appointment-select"><option value="">No appointment link</option></select></label>
+                <label><span>Notes</span><textarea name="notes" rows="4" placeholder="Deposit for June 30 appointment, final balance, etc."></textarea></label>
+                <button class="primary-action" type="submit">Create payment request</button>
+              </form>
+              <div>
+                <div class="section-head tight">
+                  <div>
+                    <p class="eyebrow">Payments</p>
+                    <h3>QR codes and invoices</h3>
+                  </div>
+                  <button class="secondary-action" id="refresh-payments" type="button">Refresh</button>
+                </div>
+                <div id="payment-request-list" class="payment-list"></div>
+              </div>
             </div>
           </section>
 

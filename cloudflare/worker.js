@@ -279,6 +279,26 @@ function publicEmailSettings(settings) {
   };
 }
 
+function publicPaymentRequest(row) {
+  return {
+    id: row.id,
+    customerName: row.customer_name,
+    email: row.email || "",
+    phone: row.phone || "",
+    service: row.service,
+    amountCents: row.amount_cents,
+    currency: row.currency || "USD",
+    status: row.status,
+    requestType: row.request_type,
+    publicUrl: row.public_url,
+    notes: row.notes || "",
+    invoiceSent: Boolean(row.invoice_sent),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    paidAt: row.paid_at || ""
+  };
+}
+
 async function getEmailSettings(env, businessId) {
   return env.DB.prepare("SELECT * FROM business_email_settings WHERE business_id = ? LIMIT 1")
     .bind(businessId)
@@ -529,6 +549,46 @@ async function sendBusinessEmail(env, business, settings, payload) {
       .run();
   }
   return json({ ok: delivery.ok, delivery, message: { to, subject, createdAt } }, delivery.ok ? 201 : 202);
+}
+
+function requestOrigin(request) {
+  return new URL(request.url).origin;
+}
+
+async function sendPaymentInvoiceEmail(env, request, business, payment) {
+  if (!payment.email) return json({ error: "Customer email is required before sending an invoice." }, 400);
+  const settings = await ensureEmailSettings(env, business);
+  const amount = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: payment.currency || "USD"
+  }).format(Number(payment.amount_cents || 0) / 100);
+  const invoiceUrl = payment.public_url || `${requestOrigin(request)}/pay/${payment.id}`;
+  const message = [
+    `Hi ${payment.customer_name},`,
+    "",
+    `${business.name} sent you an invoice for ${amount}.`,
+    `Service: ${payment.service}`,
+    payment.notes ? `Notes: ${payment.notes}` : "",
+    "",
+    `Open invoice: ${invoiceUrl}`,
+    "",
+    "You can show the invoice QR code in person or contact the studio with questions."
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const response = await sendBusinessEmail(env, business, settings, {
+    to: payment.email,
+    subject: `${business.name} invoice for ${amount}`,
+    message
+  });
+  const payload = await response.clone().json().catch(() => ({}));
+  const now = nowIso();
+  await env.DB.prepare(
+    "UPDATE payment_requests SET invoice_sent = 1, status = CASE WHEN status = 'open' THEN 'sent' ELSE status END, updated_at = ? WHERE id = ? AND business_id = ?"
+  )
+    .bind(now, payment.id, business.id)
+    .run();
+  return json({ ok: response.ok, payment: publicPaymentRequest({ ...payment, invoice_sent: 1, status: payment.status === "open" ? "sent" : payment.status, updated_at: now }), delivery: payload.delivery || payload }, response.status);
 }
 
 async function streamToText(stream, limit = 180000) {
@@ -1087,6 +1147,17 @@ async function api(request, env) {
     return json({ business: publicBusiness(business, await getArt(env, business.id)) });
   }
 
+  const publicPaymentMatch = url.pathname.match(/^\/api\/payments\/([^/]+)$/);
+  if (method === "GET" && publicPaymentMatch) {
+    const payment = await env.DB.prepare("SELECT * FROM payment_requests WHERE id = ? LIMIT 1")
+      .bind(decodeURIComponent(publicPaymentMatch[1]))
+      .first();
+    if (!payment) return json({ error: "Payment request not found." }, 404);
+    const business = await getBusiness(env, payment.business_id);
+    if (!business) return json({ error: "Studio not found." }, 404);
+    return json({ payment: publicPaymentRequest(payment), business: publicBusiness(business, await getArt(env, business.id)) });
+  }
+
   if (method === "GET" && url.pathname.startsWith("/api/art-images/")) {
     const key = decodeURIComponent(url.pathname.slice("/api/art-images/".length));
     const object = await env.ART_BUCKET.get(key);
@@ -1337,15 +1408,16 @@ async function api(request, env) {
       ensureEmailSettings(env, auth.business)
     ]);
     const access = accessForSubscription(subscription);
-    const [inquiries, appointments, inbox, customers, emailMessages] = access.isSubscribed
+    const [inquiries, appointments, inbox, customers, emailMessages, payments] = access.isSubscribed
       ? await Promise.all([
           env.DB.prepare("SELECT *, customer_name AS customerName, contact_method AS contactMethod, employee_notes AS employeeNotes, created_at AS createdAt FROM inquiries WHERE business_id = ? ORDER BY created_at DESC").bind(businessId).all(),
           env.DB.prepare("SELECT *, customer_name AS customerName, contact_method AS contactMethod, duration_minutes AS durationMinutes, created_at AS createdAt FROM appointments WHERE business_id = ? ORDER BY start ASC").bind(businessId).all(),
           env.DB.prepare("SELECT *, from_name AS fromName, from_contact AS fromContact, created_at AS createdAt FROM inbox WHERE business_id = ? ORDER BY created_at DESC").bind(businessId).all(),
           env.DB.prepare("SELECT DISTINCT c.* FROM customers c JOIN inquiries i ON i.customer_id = c.id WHERE i.business_id = ? ORDER BY c.updated_at DESC").bind(businessId).all(),
-          { results: await getEmailMessages(env, businessId) }
+          { results: await getEmailMessages(env, businessId) },
+          env.DB.prepare("SELECT * FROM payment_requests WHERE business_id = ? ORDER BY created_at DESC").bind(businessId).all()
         ])
-      : [{ results: [] }, { results: [] }, { results: [] }, { results: [] }, { results: [] }];
+      : [{ results: [] }, { results: [] }, { results: [] }, { results: [] }, { results: [] }, { results: [] }];
     return json({
       employee: auth.employee,
       business: publicBusiness(auth.business, art),
@@ -1355,7 +1427,8 @@ async function api(request, env) {
       inquiries: inquiries.results || [],
       appointments: appointments.results || [],
       inbox: (inbox.results || []).map((message) => ({ ...message, delivery: parseJson(message.delivery_json, {}) })),
-      customers: customers.results || []
+      customers: customers.results || [],
+      payments: (payments.results || []).map(publicPaymentRequest)
     });
   }
 
@@ -1460,6 +1533,97 @@ async function api(request, env) {
 
     const settings = await ensureEmailSettings(env, auth.business);
     return sendBusinessEmail(env, auth.business, settings, await request.json());
+  }
+
+  if (method === "POST" && url.pathname === "/api/business/payments") {
+    const subscriptionError = await requireSubscribed(env, auth.business.id);
+    if (subscriptionError) return subscriptionError;
+
+    const body = await request.json();
+    const amount = Number(body.amount);
+    const customerName = clean(body.customerName);
+    const service = clean(body.service);
+    const email = clean(body.email).toLowerCase();
+    if (!customerName) return json({ error: "Customer name is required." }, 400);
+    if (!service) return json({ error: "Service is required." }, 400);
+    if (!Number.isFinite(amount) || amount <= 0) return json({ error: "Amount must be greater than zero." }, 400);
+    if (email && !email.includes("@")) return json({ error: "Customer email must be valid." }, 400);
+    const id = randomId("pay");
+    const now = nowIso();
+    const publicUrl = `${requestOrigin(request)}/pay/${id}`;
+    await env.DB.prepare(
+      `INSERT INTO payment_requests (
+        id, business_id, appointment_id, customer_name, email, phone, service,
+        amount_cents, currency, status, request_type, public_url, notes,
+        invoice_sent, created_at, updated_at, paid_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(
+        id,
+        auth.business.id,
+        clean(body.appointmentId),
+        customerName,
+        email,
+        clean(body.phone),
+        service,
+        Math.round(amount * 100),
+        "USD",
+        "open",
+        body.requestType === "invoice" ? "invoice" : "in_person",
+        publicUrl,
+        clean(body.notes),
+        0,
+        now,
+        now,
+        ""
+      )
+      .run();
+    let payment = await env.DB.prepare("SELECT * FROM payment_requests WHERE id = ? AND business_id = ? LIMIT 1")
+      .bind(id, auth.business.id)
+      .first();
+    let invoiceDelivery = null;
+    if (payment.request_type === "invoice" && payment.email) {
+      const invoiceResponse = await sendPaymentInvoiceEmail(env, request, auth.business, payment);
+      const payload = await invoiceResponse.clone().json().catch(() => ({}));
+      invoiceDelivery = payload.delivery || payload;
+      payment = await env.DB.prepare("SELECT * FROM payment_requests WHERE id = ? AND business_id = ? LIMIT 1")
+        .bind(id, auth.business.id)
+        .first();
+    }
+    return json({ ok: true, payment: publicPaymentRequest(payment), invoiceDelivery }, 201);
+  }
+
+  const paymentInvoice = url.pathname.match(/^\/api\/business\/payments\/([^/]+)\/send-invoice$/);
+  if (method === "POST" && paymentInvoice) {
+    const subscriptionError = await requireSubscribed(env, auth.business.id);
+    if (subscriptionError) return subscriptionError;
+
+    const payment = await env.DB.prepare("SELECT * FROM payment_requests WHERE id = ? AND business_id = ? LIMIT 1")
+      .bind(decodeURIComponent(paymentInvoice[1]), auth.business.id)
+      .first();
+    if (!payment) return json({ error: "Payment request not found." }, 404);
+    return sendPaymentInvoiceEmail(env, request, auth.business, payment);
+  }
+
+  const paymentPatch = url.pathname.match(/^\/api\/business\/payments\/([^/]+)$/);
+  if (method === "PATCH" && paymentPatch) {
+    const subscriptionError = await requireSubscribed(env, auth.business.id);
+    if (subscriptionError) return subscriptionError;
+
+    const body = await request.json();
+    const status = clean(body.status || "open");
+    if (!new Set(["open", "sent", "paid", "void"]).has(status)) return json({ error: "Unsupported payment status." }, 400);
+    const now = nowIso();
+    await env.DB.prepare(
+      "UPDATE payment_requests SET status = ?, updated_at = ?, paid_at = CASE WHEN ? = 'paid' THEN ? ELSE paid_at END WHERE id = ? AND business_id = ?"
+    )
+      .bind(status, now, status, now, decodeURIComponent(paymentPatch[1]), auth.business.id)
+      .run();
+    const payment = await env.DB.prepare("SELECT * FROM payment_requests WHERE id = ? AND business_id = ? LIMIT 1")
+      .bind(decodeURIComponent(paymentPatch[1]), auth.business.id)
+      .first();
+    if (!payment) return json({ error: "Payment request not found." }, 404);
+    return json({ ok: true, payment: publicPaymentRequest(payment) });
   }
 
   const emailRead = url.pathname.match(/^\/api\/business\/email\/messages\/([^/]+)$/);

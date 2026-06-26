@@ -348,6 +348,27 @@ function createSeedStore() {
       }
     ],
     emailMessages: [],
+    paymentRequests: [
+      {
+        id: "pay_demo_deposit",
+        businessId: "holler-and-son",
+        appointmentId: "appt_demo_today_1",
+        customerName: "Avery Cole",
+        email: "avery@example.com",
+        phone: "(615) 555-0108",
+        service: "Deposit for blackwork peony shoulder piece",
+        amountCents: 7500,
+        currency: "USD",
+        status: "sent",
+        requestType: "invoice",
+        publicUrl: "/pay/pay_demo_deposit",
+        notes: "Demo invoice for the appointment deposit.",
+        invoiceSent: true,
+        createdAt,
+        updatedAt: createdAt,
+        paidAt: ""
+      }
+    ],
     customers: [
       {
         id: "cust_demo_avery",
@@ -623,6 +644,10 @@ async function readStore() {
     store.emailMessages = [];
     changed = true;
   }
+  if (!Array.isArray(store.paymentRequests)) {
+    store.paymentRequests = [];
+    changed = true;
+  }
   if (!Array.isArray(store.customers)) {
     store.customers = [];
     changed = true;
@@ -659,7 +684,7 @@ function ensureDemoAccountData(store) {
     }
   }
 
-  for (const key of ["customers", "inquiries", "appointments", "inbox"]) {
+  for (const key of ["customers", "inquiries", "appointments", "inbox", "paymentRequests"]) {
     for (const item of seed[key] || []) {
       if (!store[key].some((existing) => existing.id === item.id)) {
         store[key].push(item);
@@ -1048,6 +1073,71 @@ async function sendBusinessEmail(store, business, settings, body) {
   return { status: delivery.ok ? 201 : 202, payload: { ok: delivery.ok, delivery, message: { to, subject, createdAt } } };
 }
 
+function requestOrigin(req) {
+  const host = req.headers.host || `localhost:${PORT}`;
+  const proto = host.includes("localhost") || host.startsWith("127.0.0.1") ? "http" : "https";
+  return `${proto}://${host}`;
+}
+
+function publicPaymentRequest(request) {
+  return {
+    id: request.id,
+    customerName: request.customerName,
+    email: request.email || "",
+    phone: request.phone || "",
+    service: request.service,
+    amountCents: request.amountCents,
+    currency: request.currency || "USD",
+    status: request.status,
+    requestType: request.requestType,
+    publicUrl: request.publicUrl,
+    notes: request.notes || "",
+    invoiceSent: Boolean(request.invoiceSent),
+    createdAt: request.createdAt,
+    updatedAt: request.updatedAt,
+    paidAt: request.paidAt || ""
+  };
+}
+
+function findPaymentRequest(store, businessId, paymentId) {
+  return store.paymentRequests.find(
+    (request) => request.id === paymentId && (!businessId || request.businessId === businessId)
+  );
+}
+
+async function sendPaymentInvoiceEmail(store, business, payment, req) {
+  if (!payment.email) {
+    return { status: 400, payload: { error: "Customer email is required before sending an invoice." } };
+  }
+  const settings = ensureEmailSettings(store, business);
+  const amount = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: payment.currency || "USD"
+  }).format(payment.amountCents / 100);
+  const message = [
+    `Hi ${payment.customerName},`,
+    "",
+    `${business.name} sent you an invoice for ${amount}.`,
+    `Service: ${payment.service}`,
+    payment.notes ? `Notes: ${payment.notes}` : "",
+    "",
+    `Open invoice: ${payment.publicUrl || `${requestOrigin(req)}/pay/${payment.id}`}`,
+    "",
+    "You can show the invoice QR code in person or contact the studio with questions."
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const result = await sendBusinessEmail(store, business, settings, {
+    to: payment.email,
+    subject: `${business.name} invoice for ${amount}`,
+    message
+  });
+  payment.invoiceSent = true;
+  if (payment.status === "open") payment.status = "sent";
+  payment.updatedAt = nowIso();
+  return result;
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -1392,6 +1482,15 @@ async function handleApi(req, res, url) {
     const business = findBusiness(store, decodeURIComponent(parlorMatch[1]));
     if (!business) return sendJson(res, 404, { error: "Tattoo parlor not found." });
     return sendJson(res, 200, { business: publicBusiness(business) });
+  }
+
+  const publicPaymentMatch = pathname.match(/^\/api\/payments\/([^/]+)$/);
+  if (method === "GET" && publicPaymentMatch) {
+    const payment = store.paymentRequests.find((request) => request.id === decodeURIComponent(publicPaymentMatch[1]));
+    if (!payment) return sendJson(res, 404, { error: "Payment request not found." });
+    const business = findBusiness(store, payment.businessId);
+    if (!business) return sendJson(res, 404, { error: "Studio not found." });
+    return sendJson(res, 200, { payment: publicPaymentRequest(payment), business: publicBusiness(business) });
   }
 
   if (method === "POST" && pathname === "/api/business/signup") {
@@ -1803,6 +1902,12 @@ async function handleApi(req, res, url) {
         ? store.inbox
             .filter((message) => message.businessId === businessId)
             .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        : [],
+      payments: access.isSubscribed
+        ? store.paymentRequests
+            .filter((payment) => payment.businessId === businessId)
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+            .map(publicPaymentRequest)
         : []
     });
   }
@@ -1887,6 +1992,80 @@ async function handleApi(req, res, url) {
     );
     await writeStore(store);
     return sendJson(res, result.status, result.payload);
+  }
+
+  if (method === "POST" && pathname === "/api/business/payments") {
+    const subscriptionError = subscriptionRequiredResponse(store, auth);
+    if (subscriptionError) return sendJson(res, 402, subscriptionError);
+
+    const body = await readJsonBody(req);
+    const amount = Number(body.amount);
+    const customerName = cleanString(body.customerName);
+    const service = cleanString(body.service);
+    const email = cleanString(body.email).toLowerCase();
+    const now = nowIso();
+    if (!customerName) return sendJson(res, 400, { error: "Customer name is required." });
+    if (!service) return sendJson(res, 400, { error: "Service is required." });
+    if (!Number.isFinite(amount) || amount <= 0) return sendJson(res, 400, { error: "Amount must be greater than zero." });
+    if (email && !email.includes("@")) return sendJson(res, 400, { error: "Customer email must be valid." });
+    const id = randomId("pay");
+    const payment = {
+      id,
+      businessId: auth.business.id,
+      appointmentId: cleanString(body.appointmentId),
+      customerName,
+      email,
+      phone: cleanString(body.phone),
+      service,
+      amountCents: Math.round(amount * 100),
+      currency: "USD",
+      status: "open",
+      requestType: body.requestType === "invoice" ? "invoice" : "in_person",
+      publicUrl: `${requestOrigin(req)}/pay/${id}`,
+      notes: cleanString(body.notes),
+      invoiceSent: false,
+      createdAt: now,
+      updatedAt: now,
+      paidAt: ""
+    };
+    store.paymentRequests.push(payment);
+    let invoiceDelivery = null;
+    if (payment.requestType === "invoice" && payment.email) {
+      const result = await sendPaymentInvoiceEmail(store, auth.business, payment, req);
+      invoiceDelivery = result.payload?.delivery || result.payload;
+    }
+    await writeStore(store);
+    return sendJson(res, 201, { ok: true, payment: publicPaymentRequest(payment), invoiceDelivery });
+  }
+
+  const paymentInvoiceMatch = pathname.match(/^\/api\/business\/payments\/([^/]+)\/send-invoice$/);
+  if (method === "POST" && paymentInvoiceMatch) {
+    const subscriptionError = subscriptionRequiredResponse(store, auth);
+    if (subscriptionError) return sendJson(res, 402, subscriptionError);
+
+    const payment = findPaymentRequest(store, auth.business.id, decodeURIComponent(paymentInvoiceMatch[1]));
+    if (!payment) return sendJson(res, 404, { error: "Payment request not found." });
+    const result = await sendPaymentInvoiceEmail(store, auth.business, payment, req);
+    await writeStore(store);
+    return sendJson(res, result.status, { ok: result.status < 400, payment: publicPaymentRequest(payment), delivery: result.payload?.delivery || result.payload });
+  }
+
+  const paymentPatchMatch = pathname.match(/^\/api\/business\/payments\/([^/]+)$/);
+  if (method === "PATCH" && paymentPatchMatch) {
+    const subscriptionError = subscriptionRequiredResponse(store, auth);
+    if (subscriptionError) return sendJson(res, 402, subscriptionError);
+
+    const payment = findPaymentRequest(store, auth.business.id, decodeURIComponent(paymentPatchMatch[1]));
+    if (!payment) return sendJson(res, 404, { error: "Payment request not found." });
+    const body = await readJsonBody(req);
+    const allowedStatuses = new Set(["open", "sent", "paid", "void"]);
+    const status = cleanString(body.status || payment.status);
+    if (!allowedStatuses.has(status)) return sendJson(res, 400, { error: "Unsupported payment status." });
+    payment.status = status;
+    payment.updatedAt = nowIso();
+    payment.paidAt = status === "paid" ? payment.updatedAt : payment.paidAt || "";
+    await writeStore(store);
+    return sendJson(res, 200, { ok: true, payment: publicPaymentRequest(payment) });
   }
 
   const emailReadMatch = pathname.match(/^\/api\/business\/email\/messages\/([^/]+)$/);

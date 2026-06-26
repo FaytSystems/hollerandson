@@ -653,6 +653,7 @@ textarea:focus {
 .inquiry-list,
 .message-list,
 .mailbox-list,
+.payment-list,
 .art-wall {
   display: grid;
   gap: 0.8rem;
@@ -781,13 +782,79 @@ textarea:focus {
 .calendar-item,
 .inquiry-item,
 .message-item,
-.mailbox-item {
+.mailbox-item,
+.payment-item {
   display: grid;
   gap: 0.55rem;
   padding: 1rem;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.18);
+}
+
+.payment-item {
+  grid-template-columns: 180px minmax(0, 1fr);
+}
+
+.payment-qr {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  border: 1px solid rgba(242, 187, 100, 0.22);
+  border-radius: 8px;
+  background: #f7ead8;
+}
+
+.payment-qr img,
+.qr-panel img {
+  display: block;
+  width: min(100%, 260px);
+  aspect-ratio: 1;
+}
+
+.payment-body {
+  display: grid;
+  gap: 0.55rem;
+  align-content: start;
+}
+
+.payment-amount {
+  margin: 0;
+  color: var(--amber);
+  font-size: 1.65rem;
+  font-weight: 900;
+}
+
+.payment-amount.large {
+  font-size: clamp(2.2rem, 6vw, 4.8rem);
+}
+
+.payment-page {
+  width: min(1120px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 4rem 0;
+}
+
+.payment-receipt {
+  display: grid;
+  gap: 1rem;
+}
+
+.payment-public-head {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.payment-public-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  gap: 1rem;
+}
+
+.qr-panel {
+  display: grid;
+  place-items: center;
+  text-align: center;
 }
 
 .mailbox-head {
@@ -999,6 +1066,8 @@ th {
 @media (max-width: 1020px) {
   .entry-split,
   .customer-auth-grid,
+  .payment-public-grid,
+  .payment-item,
   .search-panel,
   .results-layout,
   .login-panel,

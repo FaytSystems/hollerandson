@@ -184,6 +184,27 @@ CREATE TABLE IF NOT EXISTS email_messages (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS payment_requests (
+  id TEXT PRIMARY KEY,
+  business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
+  appointment_id TEXT REFERENCES appointments(id) ON DELETE SET NULL,
+  customer_name TEXT NOT NULL,
+  email TEXT DEFAULT '',
+  phone TEXT DEFAULT '',
+  service TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'USD',
+  status TEXT NOT NULL DEFAULT 'open',
+  request_type TEXT NOT NULL DEFAULT 'in_person',
+  public_url TEXT NOT NULL,
+  notes TEXT DEFAULT '',
+  invoice_sent INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  paid_at TEXT DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS subscriptions (
   id TEXT PRIMARY KEY,
   business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -217,6 +238,7 @@ CREATE INDEX IF NOT EXISTS idx_customer_favorites_customer ON customer_favorites
 CREATE INDEX IF NOT EXISTS idx_customer_messages_customer ON customer_messages(customer_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_email_settings_address ON business_email_settings(local_part, domain);
 CREATE INDEX IF NOT EXISTS idx_email_messages_business ON email_messages(business_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_payment_requests_business ON payment_requests(business_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_business ON subscriptions(business_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_customer ON subscriptions(stripe_customer_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
@@ -527,6 +549,31 @@ INSERT OR IGNORE INTO inbox (
     1,
     datetime('now')
   );
+
+INSERT OR IGNORE INTO payment_requests (
+  id, business_id, customer_id, appointment_id, customer_name, email, phone,
+  service, amount_cents, currency, status, request_type, public_url, notes,
+  invoice_sent, created_at, updated_at, paid_at
+) VALUES (
+  'pay_demo_deposit',
+  'holler-and-son',
+  'cust_demo_avery',
+  'appt_demo_today_1',
+  'Avery Cole',
+  'avery@example.com',
+  '(615) 555-0108',
+  'Deposit for blackwork peony shoulder piece',
+  7500,
+  'USD',
+  'sent',
+  'invoice',
+  '/pay/pay_demo_deposit',
+  'Demo invoice for the appointment deposit.',
+  1,
+  datetime('now'),
+  datetime('now'),
+  ''
+);
 
 INSERT OR IGNORE INTO business_email_settings (
   business_id, local_part, domain, display_name, reply_to, forward_to,

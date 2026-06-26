@@ -300,7 +300,9 @@ function setAppMode(mode) {
   const isHome = mode === "home";
   const isCustomer = mode === "customer";
   const isBusiness = mode === "business";
+  const isPayment = mode === "payment";
   $("#home").hidden = !isHome;
+  $("#payment-page").hidden = !isPayment;
   $("#customer-portal").hidden = !isCustomer;
   $$(".customer-tab-panel").forEach((panel) => {
     panel.hidden = !isCustomer;
@@ -308,6 +310,21 @@ function setAppMode(mode) {
   const businessTools = $("#business-tools");
   if (businessTools) businessTools.hidden = true;
   $("#employee-area").hidden = !isBusiness;
+}
+
+function money(cents, currency = "USD") {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency
+  }).format(Number(cents || 0) / 100);
+}
+
+function qrImageUrl(value) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=14&data=${encodeURIComponent(value)}`;
+}
+
+function absoluteUrl(value) {
+  return new URL(value || location.href, location.origin).href;
 }
 
 function renderCustomerDashboard() {
@@ -419,6 +436,47 @@ async function loadCustomerDashboard() {
   state.customerDashboard = await api("/api/customer/dashboard");
   setAppMode("customer");
   renderCustomerDashboard();
+}
+
+async function loadPublicPaymentPage(id) {
+  setAppMode("payment");
+  const target = $("#payment-page-content");
+  target.innerHTML = '<p class="muted">Loading payment request...</p>';
+  const payload = await api(`/api/payments/${encodeURIComponent(id)}`);
+  const request = payload.payment;
+  const business = payload.business;
+  const url = absoluteUrl(request.publicUrl || location.href);
+  target.innerHTML = `
+    <div class="payment-public-head">
+      <p class="eyebrow">Payment request</p>
+      <h1>${escapeHtml(business.name)}</h1>
+      <p class="muted">${escapeHtml(businessLocation(business))}</p>
+    </div>
+    <div class="payment-public-grid">
+      <div class="mini-panel">
+        <div class="meta-line">
+          <span class="tag">${escapeHtml(request.status || "open")}</span>
+          <span>${escapeHtml(request.requestType === "invoice" ? "Invoice" : "In-person QR")}</span>
+        </div>
+        <h2>${escapeHtml(request.service)}</h2>
+        <p class="payment-amount large">${money(request.amountCents, request.currency)}</p>
+        <p>${escapeHtml(request.customerName)}</p>
+        <p class="muted">${escapeHtml(request.notes || "Show this invoice to the studio to complete payment.")}</p>
+      </div>
+      <div class="mini-panel qr-panel">
+        <img src="${qrImageUrl(url)}" alt="QR code for this payment request">
+        <p class="muted">Scan this QR code to reopen this invoice.</p>
+      </div>
+    </div>
+    <div class="mini-panel">
+      <h3>How to pay</h3>
+      <p class="muted">This invoice is ready for in-person collection or manual payment confirmation by the studio. Card, Google Pay, and Venmo settlement can be connected later through Stripe Connect or Braintree without changing this invoice workflow.</p>
+      <div class="card-actions">
+        ${business.phone ? `<a class="secondary-action" href="tel:${escapeHtml(business.phone)}">Call studio</a>` : ""}
+        ${business.email ? `<a class="secondary-action" href="mailto:${escapeHtml(business.email)}">Email studio</a>` : ""}
+      </div>
+    </div>
+  `;
 }
 
 function activateCustomerTab(name) {
@@ -633,6 +691,7 @@ function renderDashboard() {
   renderMailbox();
   fillProfileForm();
   renderDashboardArt();
+  renderPayments();
   renderCustomers();
 }
 
@@ -1101,6 +1160,95 @@ async function uploadArt(event) {
   });
 }
 
+function renderPayments() {
+  const form = $("#payment-request-form");
+  if (!form) return;
+  const appointments = state.dashboard?.appointments || [];
+  $("#payment-appointment-select").innerHTML = '<option value="">No appointment link</option>' + appointments
+    .map(
+      (appointment) =>
+        `<option value="${appointment.id}">${escapeHtml(compactDate(appointment.start))} - ${escapeHtml(appointment.customerName || appointment.customer_name)} - ${escapeHtml(appointment.service)}</option>`
+    )
+    .join("");
+
+  $$("#payment-request-form input, #payment-request-form select, #payment-request-form textarea, #payment-request-form button, #refresh-payments").forEach((control) => {
+    control.disabled = !hasSubscriptionAccess();
+  });
+
+  const list = $("#payment-request-list");
+  if (!hasSubscriptionAccess()) {
+    list.innerHTML = gatedMessage("Payment requests");
+    return;
+  }
+  const requests = state.dashboard?.payments || [];
+  if (!requests.length) {
+    list.innerHTML = '<p class="muted">Create an in-person QR code or email invoice to start tracking service payments.</p>';
+    return;
+  }
+  list.innerHTML = requests
+    .map((request) => {
+      const url = absoluteUrl(request.publicUrl || `/pay/${request.id}`);
+      return `
+        <article class="payment-item">
+          <div class="payment-qr">
+            <img src="${qrImageUrl(url)}" alt="QR code for ${escapeHtml(request.service)} payment">
+          </div>
+          <div class="payment-body">
+            <div class="meta-line">
+              <span class="tag">${escapeHtml(request.status || "open")}</span>
+              <span>${escapeHtml(request.requestType === "invoice" ? "Invoice" : "In-person QR")}</span>
+              <span>${shortDate(request.createdAt)}</span>
+            </div>
+            <h3>${escapeHtml(request.service)}</h3>
+            <p class="payment-amount">${money(request.amountCents, request.currency)}</p>
+            <p class="meta-line">${escapeHtml(request.customerName)}${request.email ? ` - ${escapeHtml(request.email)}` : ""}</p>
+            <p class="muted">${escapeHtml(request.notes || "No notes.")}</p>
+            <div class="card-actions">
+              <a class="secondary-action" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">Open invoice</a>
+              <button class="primary-action" data-send-payment-invoice="${request.id}" type="button" ${request.email ? "" : "disabled"}>Send invoice email</button>
+              <button class="ghost-action" data-payment-status="${request.id}:paid" type="button">Mark paid</button>
+              <button class="ghost-action" data-payment-status="${request.id}:void" type="button">Void</button>
+            </div>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+async function createPaymentRequest(event) {
+  event.preventDefault();
+  if (!hasSubscriptionAccess()) return toast("Activate the studio subscription before creating payment requests.");
+  const response = await api("/api/business/payments", {
+    method: "POST",
+    body: JSON.stringify(formToObject(event.currentTarget))
+  });
+  event.currentTarget.reset();
+  toast(response.invoiceDelivery?.ok ? "Payment request created and invoice sent." : "Payment request created.");
+  await loadDashboard();
+  activateTab("payments");
+}
+
+async function sendPaymentInvoice(id) {
+  const response = await api(`/api/business/payments/${encodeURIComponent(id)}/send-invoice`, {
+    method: "POST"
+  });
+  toast(response.delivery?.ok ? "Invoice email sent." : "Invoice saved to mailbox. Configure Resend to deliver.");
+  await loadDashboard();
+  activateTab("payments");
+}
+
+async function updatePaymentStatus(value) {
+  const [id, status] = value.split(":");
+  await api(`/api/business/payments/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status })
+  });
+  toast(`Payment marked ${status}.`);
+  await loadDashboard();
+  activateTab("payments");
+}
+
 function renderCustomers() {
   if (!hasSubscriptionAccess()) {
     $("#customer-table").innerHTML = '<tr><td colspan="5">Subscription required to view saved customers.</td></tr>';
@@ -1237,6 +1385,12 @@ function bindEvents() {
       });
       renderCustomerDashboard();
     }
+
+    const paymentInvoiceId = event.target.closest("[data-send-payment-invoice]")?.dataset.sendPaymentInvoice;
+    if (paymentInvoiceId) await sendPaymentInvoice(paymentInvoiceId);
+
+    const paymentStatus = event.target.closest("[data-payment-status]")?.dataset.paymentStatus;
+    if (paymentStatus) await updatePaymentStatus(paymentStatus);
   });
 
   $("#booking-form").addEventListener("submit", handleBookingSubmit);
@@ -1258,8 +1412,13 @@ function bindEvents() {
   });
   $("#profile-form").addEventListener("submit", saveProfile);
   $("#art-form").addEventListener("submit", uploadArt);
+  $("#payment-request-form").addEventListener("submit", createPaymentRequest);
   $("#employee-appointment-form").addEventListener("submit", addEmployeeAppointment);
   $("#refresh-dashboard").addEventListener("click", loadDashboard);
+  $("#refresh-payments").addEventListener("click", async () => {
+    await loadDashboard();
+    activateTab("payments");
+  });
   $("#preview-business-page").addEventListener("click", openBusinessPreview);
   $("#calendar-date").value = state.calendarDate;
   $("#calendar-date").addEventListener("change", (event) => {
@@ -1305,6 +1464,11 @@ async function init() {
   bindEvents();
   setAppMode("home");
   setCustomerPrefsForm();
+  const paymentMatch = location.pathname.match(/^\/pay\/([^/]+)$/);
+  if (paymentMatch) {
+    await loadPublicPaymentPage(decodeURIComponent(paymentMatch[1]));
+    return;
+  }
   await loadParlors({ location: "Nashville", radius: 100 });
   const activePortal = localStorage.getItem("hs_active_portal");
   if (state.customerToken && activePortal !== "business") {

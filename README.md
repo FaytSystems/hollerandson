@@ -10,6 +10,7 @@ A Cloudflare-ready tattoo appointment marketplace and studio portal.
 - Public tattoo parlor pages with phone, email, location, website, social links, bio, artists, specialties, hours, art wall, and appointment button.
 - Appointment request flow where customers choose phone or email contact.
 - Business login area with inbox, inquiry status, day/week/month calendar, customer records, public profile editing, gallery uploads, and subscription tools.
+- Payment requests for tattoo services with in-person QR codes, public invoice pages, manual paid/void tracking, and invoice email delivery through the business mailbox.
 - Email notification hook for tattoo businesses through Resend.
 - Professional per-business email addresses with in-house inboxes, outbound customer email, and optional forwarding.
 - Stripe monthly-fee buy button in the employee subscription tab.
@@ -180,6 +181,10 @@ In Cloudflare:
 The Worker rejects unknown mailbox addresses, stores known incoming messages in `email_messages`, and forwards to the configured `forwardTo` address when `forwardingEnabled` is on.
 
 Cloudflare's Email Workers API exposes an `email()` handler with `message.from`, `message.to`, headers, raw content, `message.forward()`, `message.reply()`, and `message.setReject()`. This app uses the handler to store mail in D1 and uses Resend for professional outbound and forwarding delivery.
+
+## Service payment requests
+
+Subscribed businesses can use the **Payments** dashboard tab to create a service charge, generate an in-person QR code, open a public invoice page, and email the invoice from their professional Holler & Son mailbox. The current workflow records and tracks payment requests with manual paid/void status. Stripe Connect or Braintree can later attach real card, Google Pay, or Venmo settlement to the same payment request records.
 
 ## Stripe monthly fee
 
