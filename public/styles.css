@@ -24,6 +24,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html {
   scroll-behavior: smooth;
 }
@@ -153,7 +157,49 @@ a {
 
 .entry-panel h1 {
   max-width: 640px;
-  font-size: clamp(2.15rem, 4.5vw, 5.2rem);
+  font-size: clamp(2rem, 4vw, 4.6rem);
+}
+
+.auth-card {
+  display: grid;
+  gap: 1rem;
+  width: min(560px, 100%);
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(23, 20, 20, 0.86);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.auth-tab {
+  min-height: 2.7rem;
+  border: 0;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.03);
+  font-weight: 900;
+}
+
+.auth-tab.is-active {
+  color: var(--paper);
+  background: rgba(242, 187, 100, 0.16);
+}
+
+.auth-form {
+  display: none;
+  gap: 0.85rem;
+}
+
+.auth-form.is-active {
+  display: grid;
 }
 
 .hero {

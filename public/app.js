@@ -296,13 +296,25 @@ function saveCustomerPrefs() {
   toast("Customer info saved.");
 }
 
+function setAppMode(mode) {
+  const isHome = mode === "home";
+  const isCustomer = mode === "customer";
+  const isBusiness = mode === "business";
+  $("#home").hidden = !isHome;
+  $("#customer-portal").hidden = !isCustomer;
+  $$(".customer-tab-panel").forEach((panel) => {
+    panel.hidden = !isCustomer;
+  });
+  const businessTools = $("#business-tools");
+  if (businessTools) businessTools.hidden = true;
+  $("#employee-area").hidden = !isBusiness;
+}
+
 function renderCustomerDashboard() {
   const shell = $("#customer-dashboard");
   if (!shell) return;
-  const loginPage = $("#customer-login-page");
   if (!state.customerDashboard) {
     shell.hidden = true;
-    if (loginPage) loginPage.hidden = false;
     renderFavorites();
     renderCustomerInbox();
     renderCustomerGallery();
@@ -310,7 +322,6 @@ function renderCustomerDashboard() {
   }
   const customer = state.customerDashboard.customer || {};
   shell.hidden = false;
-  if (loginPage) loginPage.hidden = true;
   $("#customer-dashboard-title").textContent = `${customer.name || "Customer"} dashboard`;
   $("#customer-inbox-count").textContent = String(state.customerDashboard.unreadCount || 0);
   state.customerPrefs = {
@@ -395,6 +406,8 @@ async function customerAuth(event) {
   state.customerToken = response.token;
   state.customerDashboard = response.dashboard;
   localStorage.setItem("hs_customer_token", state.customerToken);
+  localStorage.setItem("hs_active_portal", "customer");
+  setAppMode("customer");
   renderCustomerDashboard();
   renderParlors({ parlors: state.parlors, radius: Number($("#search-radius").value || 50), locationKnown: false });
   toast(endpoint.includes("signup") ? "Customer account created." : "Customer login successful.");
@@ -404,6 +417,7 @@ async function customerAuth(event) {
 async function loadCustomerDashboard() {
   if (!state.customerToken) return;
   state.customerDashboard = await api("/api/customer/dashboard");
+  setAppMode("customer");
   renderCustomerDashboard();
 }
 
@@ -539,6 +553,7 @@ async function login(event) {
   });
   state.token = response.token;
   localStorage.setItem("hs_employee_token", state.token);
+  localStorage.setItem("hs_active_portal", "business");
   toast("Employee login successful.");
   await loadDashboard();
 }
@@ -551,6 +566,7 @@ async function businessSignup(event) {
   });
   state.token = response.token;
   localStorage.setItem("hs_employee_token", state.token);
+  localStorage.setItem("hs_active_portal", "business");
   toast("Studio created. Finish the subscription to unlock business tools.");
   await loadDashboard();
   activateTab("subscription");
@@ -566,8 +582,7 @@ async function businessSignup(event) {
 async function loadDashboard() {
   const payload = await api("/api/employee/dashboard");
   state.dashboard = payload;
-  $("#login-panel").hidden = true;
-  $("#business-signup").hidden = true;
+  setAppMode("business");
   $("#dashboard").hidden = false;
   $("#dashboard-title").textContent = payload.business.name;
   $("#employee-badge").textContent = `${payload.employee.name} - ${payload.employee.role}`;
@@ -1137,6 +1152,14 @@ function bindEvents() {
   });
 
   document.addEventListener("click", async (event) => {
+    const authTab = event.target.closest("[data-auth-panel]");
+    if (authTab) {
+      const card = authTab.closest(".auth-card");
+      const panel = authTab.dataset.authPanel;
+      $$("[data-auth-panel]", card).forEach((button) => button.classList.toggle("is-active", button === authTab));
+      $$("[data-auth-content]", card).forEach((form) => form.classList.toggle("is-active", form.dataset.authContent === panel));
+    }
+
     const closeId = event.target.closest("[data-close-dialog]")?.dataset.closeDialog;
     if (closeId) $((`#${closeId}`))?.close();
 
@@ -1218,17 +1241,18 @@ function bindEvents() {
     state.token = "";
     state.dashboard = null;
     localStorage.removeItem("hs_employee_token");
-    $("#login-panel").hidden = false;
-    $("#business-signup").hidden = false;
+    localStorage.removeItem("hs_active_portal");
     $("#dashboard").hidden = true;
+    setAppMode("home");
     toast("Logged out.");
   });
   $("#customer-logout-button").addEventListener("click", () => {
     state.customerToken = "";
     state.customerDashboard = null;
     localStorage.removeItem("hs_customer_token");
+    localStorage.removeItem("hs_active_portal");
     renderCustomerDashboard();
-    renderParlors({ parlors: state.parlors, radius: Number($("#search-radius").value || 50), locationKnown: false });
+    setAppMode("home");
     toast("Customer logged out.");
   });
 
@@ -1242,9 +1266,11 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
+  setAppMode("home");
   setCustomerPrefsForm();
   await loadParlors({ location: "Nashville", radius: 100 });
-  if (state.customerToken) {
+  const activePortal = localStorage.getItem("hs_active_portal");
+  if (state.customerToken && activePortal !== "business") {
     try {
       await loadCustomerDashboard();
     } catch {
@@ -1256,7 +1282,7 @@ async function init() {
   }
   renderFavorites();
   renderCustomerGallery();
-  if (state.token) {
+  if (state.token && activePortal !== "customer") {
     try {
       await loadDashboard();
     } catch {
