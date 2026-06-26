@@ -1,6 +1,19 @@
 name = "hollerandson"
 main = "cloudflare/worker.js"
 compatibility_date = "2026-06-26"
+workers_dev = true
+preview_urls = true
+
+# After clearing any existing Pages/DNS hostname conflicts in Cloudflare,
+# add these custom-domain routes back and run `npx wrangler deploy`:
+#
+# [[routes]]
+# pattern = "hollerandson.com"
+# custom_domain = true
+#
+# [[routes]]
+# pattern = "www.hollerandson.com"
+# custom_domain = true
 
 [assets]
 directory = "./public"
@@ -16,5 +29,5 @@ binding = "ART_BUCKET"
 bucket_name = "hollerandson-art"
 
 [vars]
-EMAIL_FROM = "Holler & Son <onboarding@resend.dev>"
-BUSINESS_EMAIL_DOMAIN = "hollerandson.com"
+EMAIL_FROM = "Holler & Son <appointments@hollerandson.com>"
+BUSINESS_EMAIL_DOMAIN = "mail.hollerandson.com"
