@@ -2,7 +2,11 @@ const state = {
   parlors: [],
   selectedBusiness: null,
   token: localStorage.getItem("hs_employee_token") || "",
+  customerToken: localStorage.getItem("hs_customer_token") || "",
   dashboard: null,
+  customerDashboard: null,
+  calendarView: localStorage.getItem("hs_calendar_view") || "day",
+  calendarDate: new Date().toISOString().slice(0, 10),
   favorites: JSON.parse(localStorage.getItem("hs_favorites") || "[]"),
   customerPrefs: JSON.parse(localStorage.getItem("hs_customer_prefs") || "{}")
 };
@@ -60,6 +64,32 @@ function shortDate(value) {
   }).format(new Date(value));
 }
 
+function dateKey(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  return date.toISOString().slice(0, 10);
+}
+
+function displayTime(value) {
+  return new Intl.DateTimeFormat("en", {
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
+function startOfWeek(date) {
+  const next = new Date(date);
+  const day = next.getDay();
+  next.setDate(next.getDate() - day);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function addDaysToDate(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
 function hasSubscriptionAccess() {
   return Boolean(state.dashboard?.access?.isSubscribed);
 }
@@ -86,6 +116,7 @@ async function api(path, options = {}) {
   };
   if (options.body && !(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
   if (state.token) headers.Authorization = `Bearer ${state.token}`;
+  if (state.customerToken) headers["X-Customer-Token"] = state.customerToken;
   const response = await fetch(path, { ...options, headers });
   const type = response.headers.get("Content-Type") || "";
   const payload = type.includes("application/json") ? await response.json() : await response.text();
@@ -100,6 +131,13 @@ function tags(items = [], limit = 4) {
     .slice(0, limit)
     .map((item) => `<span class="tag">${escapeHtml(item)}</span>`)
     .join("");
+}
+
+function favoriteIds() {
+  if (state.customerDashboard) {
+    return (state.customerDashboard.favorites || []).map((business) => business.id);
+  }
+  return state.favorites;
 }
 
 function renderParlors(payload) {
@@ -122,7 +160,7 @@ function renderParlors(payload) {
   list.innerHTML = state.parlors
     .map((business) => {
       const distance = business.distanceMiles !== null ? `<span>${business.distanceMiles} mi</span>` : "";
-      const favorite = state.favorites.includes(business.id);
+      const favorite = favoriteIds().includes(business.id);
       return `
         <article class="parlor-card">
           <div class="parlor-media" style="background-image: url('${firstImage(business)}')"></div>
@@ -161,15 +199,22 @@ async function loadParlors(params = {}) {
 }
 
 function getBusiness(id) {
-  return state.parlors.find((business) => business.id === id || business.slug === id);
+  return (
+    state.parlors.find((business) => business.id === id || business.slug === id) ||
+    (state.customerDashboard?.favorites || []).find((business) => business.id === id || business.slug === id)
+  );
 }
 
 function renderFavorites() {
   const list = $("#favorite-list");
-  const favoriteBusinesses = state.favorites.map(getBusiness).filter(Boolean);
-  $("#favorite-count").textContent = String(state.favorites.length);
+  const favoriteBusinesses = state.customerDashboard
+    ? state.customerDashboard.favorites || []
+    : state.favorites.map(getBusiness).filter(Boolean);
+  $("#favorite-count").textContent = String(favoriteBusinesses.length);
   if (!favoriteBusinesses.length) {
     list.innerHTML = '<p class="muted">Saved studios will appear here.</p>';
+    const fullList = $("#customer-favorite-results");
+    if (fullList) fullList.innerHTML = '<article class="mini-panel"><h3>No favorites yet.</h3><p class="muted">Save studios from search results and they will stay on your dashboard.</p></article>';
     return;
   }
   list.innerHTML = favoriteBusinesses
@@ -182,15 +227,50 @@ function renderFavorites() {
       `
     )
     .join("");
+  const fullList = $("#customer-favorite-results");
+  if (fullList) {
+    fullList.innerHTML = favoriteBusinesses
+      .map(
+        (business) => `
+          <article class="parlor-card">
+            <div class="parlor-media" style="background-image: url('${firstImage(business)}')"></div>
+            <div class="parlor-body">
+              <div>
+                <h3>${escapeHtml(business.name)}</h3>
+                <p class="meta-line">${escapeHtml(businessLocation(business))}</p>
+              </div>
+              <p>${escapeHtml(business.bio || "").slice(0, 180)}</p>
+              <div class="tag-row">${tags(business.specialties || [], 5)}</div>
+              <div class="card-actions">
+                <button class="primary-action" data-book="${business.id}" type="button">Make appointment</button>
+                <button class="secondary-action" data-profile="${business.id}" type="button">View page</button>
+                <button class="ghost-action" data-favorite="${business.id}" type="button">Remove</button>
+              </div>
+            </div>
+          </article>
+        `
+      )
+      .join("");
+  }
 }
 
-function toggleFavorite(id) {
-  if (state.favorites.includes(id)) {
+async function toggleFavorite(id) {
+  if (state.customerToken) {
+    const exists = favoriteIds().includes(id);
+    state.customerDashboard = exists
+      ? await api(`/api/customer/favorites/${encodeURIComponent(id)}`, { method: "DELETE" })
+      : await api("/api/customer/favorites", {
+          method: "POST",
+          body: JSON.stringify({ businessId: id })
+        });
+    renderCustomerDashboard();
+  } else if (state.favorites.includes(id)) {
     state.favorites = state.favorites.filter((favorite) => favorite !== id);
+    localStorage.setItem("hs_favorites", JSON.stringify(state.favorites));
   } else {
     state.favorites = [id, ...state.favorites].slice(0, 12);
+    localStorage.setItem("hs_favorites", JSON.stringify(state.favorites));
   }
-  localStorage.setItem("hs_favorites", JSON.stringify(state.favorites));
   renderParlors({ parlors: state.parlors, radius: Number($("#search-radius").value || 50), locationKnown: false });
   renderFavorites();
 }
@@ -214,6 +294,122 @@ function saveCustomerPrefs() {
   state.customerPrefs = prefs;
   localStorage.setItem("hs_customer_prefs", JSON.stringify(prefs));
   toast("Customer info saved.");
+}
+
+function renderCustomerDashboard() {
+  const shell = $("#customer-dashboard");
+  if (!shell) return;
+  const loginPage = $("#customer-login-page");
+  if (!state.customerDashboard) {
+    shell.hidden = true;
+    if (loginPage) loginPage.hidden = false;
+    renderFavorites();
+    renderCustomerInbox();
+    renderCustomerGallery();
+    return;
+  }
+  const customer = state.customerDashboard.customer || {};
+  shell.hidden = false;
+  if (loginPage) loginPage.hidden = true;
+  $("#customer-dashboard-title").textContent = `${customer.name || "Customer"} dashboard`;
+  $("#customer-inbox-count").textContent = String(state.customerDashboard.unreadCount || 0);
+  state.customerPrefs = {
+    name: customer.name || "",
+    email: customer.email || "",
+    phone: customer.phone || "",
+    contactMethod: customer.preferredContact || "email"
+  };
+  localStorage.setItem("hs_customer_prefs", JSON.stringify(state.customerPrefs));
+  setCustomerPrefsForm();
+  renderFavorites();
+  renderCustomerInbox();
+  renderCustomerGallery();
+}
+
+function renderCustomerInbox() {
+  const list = $("#customer-message-list");
+  if (!list) return;
+  const messages = state.customerDashboard?.messages || [];
+  if (!state.customerDashboard) {
+    list.innerHTML = '<article class="mini-panel"><h3>Login to see your messages.</h3><p class="muted">Customer inbox messages appear after sign up, booking requests, and studio replies.</p></article>';
+    return;
+  }
+  if (!messages.length) {
+    list.innerHTML = '<article class="mini-panel"><h3>No messages yet.</h3><p class="muted">Booking confirmations and studio replies will appear here.</p></article>';
+    return;
+  }
+  list.innerHTML = messages
+    .map(
+      (message) => `
+        <article class="message-item ${message.read ? "" : "unread"}">
+          <div class="meta-line">
+            <span class="tag">${escapeHtml(message.status || "new")}</span>
+            <span>${escapeHtml(message.fromName || "Holler & Son")}</span>
+            <span>${shortDate(message.createdAt)}</span>
+          </div>
+          <h3>${escapeHtml(message.subject)}</h3>
+          <p>${escapeHtml(message.body || message.preview || "")}</p>
+          ${message.read ? "" : `<button class="ghost-action" data-customer-message-read="${message.id}" type="button">Mark read</button>`}
+        </article>
+      `
+    )
+    .join("");
+}
+
+function renderCustomerGallery() {
+  const wall = $("#customer-gallery");
+  if (!wall) return;
+  const sourceStudios = state.customerDashboard?.favorites?.length ? state.customerDashboard.favorites : state.parlors;
+  const artItems = sourceStudios.flatMap((business) =>
+    (business.art || []).map((art) => ({ ...art, businessName: business.name, businessId: business.id }))
+  );
+  if (!artItems.length) {
+    wall.innerHTML = '<article class="mini-panel"><h3>No gallery art yet.</h3><p class="muted">Save studios or search more areas to collect gallery inspiration here.</p></article>';
+    return;
+  }
+  wall.innerHTML = artItems
+    .map(
+      (art) => `
+        <article class="art-tile">
+          <img src="${art.image}" alt="${escapeHtml(art.title)}">
+          <div>
+            <strong>${escapeHtml(art.title)}</strong>
+            <p class="muted">${escapeHtml(art.businessName)}${art.caption ? ` - ${escapeHtml(art.caption)}` : ""}</p>
+            <button class="ghost-action" data-profile="${art.businessId}" type="button">Studio page</button>
+          </div>
+        </article>
+      `
+    )
+    .join("");
+}
+
+async function customerAuth(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const endpoint = form.id === "customer-signup-form" ? "/api/customer/signup" : "/api/customer/login";
+  const payload = formToObject(form);
+  const response = await api(endpoint, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  state.customerToken = response.token;
+  state.customerDashboard = response.dashboard;
+  localStorage.setItem("hs_customer_token", state.customerToken);
+  renderCustomerDashboard();
+  renderParlors({ parlors: state.parlors, radius: Number($("#search-radius").value || 50), locationKnown: false });
+  toast(endpoint.includes("signup") ? "Customer account created." : "Customer login successful.");
+  $("#customer-dashboard").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function loadCustomerDashboard() {
+  if (!state.customerToken) return;
+  state.customerDashboard = await api("/api/customer/dashboard");
+  renderCustomerDashboard();
+}
+
+function activateCustomerTab(name) {
+  $$(".customer-tabs .tab-button").forEach((button) => button.classList.toggle("is-active", button.dataset.customerTab === name));
+  $$(".customer-tab-panel").forEach((panel) => panel.classList.toggle("is-active", panel.id === `customer-tab-${name}`));
 }
 
 function profileLinks(business) {
@@ -327,6 +523,7 @@ async function handleBookingSubmit(event) {
     ? "Request sent and email notification delivered."
     : "Request saved to the employee inbox. Email delivery needs RESEND_API_KEY in production.";
   toast("Appointment request created.");
+  if (state.customerToken) await loadCustomerDashboard();
   if (state.token) await loadDashboard();
 }
 
@@ -346,10 +543,31 @@ async function login(event) {
   await loadDashboard();
 }
 
+async function businessSignup(event) {
+  event.preventDefault();
+  const response = await api("/api/business/signup", {
+    method: "POST",
+    body: JSON.stringify(formToObject(event.currentTarget))
+  });
+  state.token = response.token;
+  localStorage.setItem("hs_employee_token", state.token);
+  toast("Studio created. Finish the subscription to unlock business tools.");
+  await loadDashboard();
+  activateTab("subscription");
+  $("#dashboard").scrollIntoView({ behavior: "smooth", block: "start" });
+  await loadParlors({
+    query: $("#search-query").value,
+    location: $("#search-location").value,
+    radius: $("#search-radius").value,
+    style: $("#search-style").value
+  });
+}
+
 async function loadDashboard() {
   const payload = await api("/api/employee/dashboard");
   state.dashboard = payload;
   $("#login-panel").hidden = true;
+  $("#business-signup").hidden = true;
   $("#dashboard").hidden = false;
   $("#dashboard-title").textContent = payload.business.name;
   $("#employee-badge").textContent = `${payload.employee.name} - ${payload.employee.role}`;
@@ -392,6 +610,11 @@ function renderCalendar() {
   $$("#employee-appointment-form input, #employee-appointment-form select, #employee-appointment-form textarea, #employee-appointment-form button").forEach((control) => {
     control.disabled = !hasSubscriptionAccess();
   });
+  const dateInput = $("#calendar-date");
+  if (dateInput && !dateInput.value) dateInput.value = state.calendarDate;
+  $$('input[name="calendar-view"]').forEach((input) => {
+    input.checked = input.value === state.calendarView;
+  });
   if (!hasSubscriptionAccess()) {
     $("#calendar-list").innerHTML = gatedMessage("Calendar management");
     return;
@@ -402,7 +625,135 @@ function renderCalendar() {
     list.innerHTML = '<p class="muted">No appointments yet.</p>';
     return;
   }
-  list.innerHTML = appointments
+  if (state.calendarView === "week") {
+    renderWeekCalendar(appointments);
+    return;
+  }
+  if (state.calendarView === "month") {
+    renderMonthCalendar(appointments);
+    return;
+  }
+  renderDayCalendar(appointments);
+}
+
+function appointmentsForDate(appointments, key) {
+  return appointments
+    .filter((appointment) => dateKey(appointment.start) === key)
+    .sort((a, b) => String(a.start).localeCompare(String(b.start)));
+}
+
+function appointmentButton(appointment, compact = false) {
+  return `
+    <button class="appointment-block" data-appointment="${appointment.id}" type="button">
+      <strong>${escapeHtml(compact ? appointment.customerName || appointment.customer_name : appointment.service)}</strong>
+      <span>${displayTime(appointment.start)} - ${escapeHtml(compact ? appointment.service : appointment.customerName || appointment.customer_name)}</span>
+    </button>
+  `;
+}
+
+function renderDayCalendar(appointments) {
+  const key = $("#calendar-date")?.value || state.calendarDate;
+  const dayAppointments = appointmentsForDate(appointments, key);
+  const hours = Array.from({ length: 15 }, (_, index) => index + 7);
+  $("#calendar-list").innerHTML = `
+    <div class="calendar-day-view">
+      ${hours
+        .map((hour) => {
+          const blocks = dayAppointments.filter((appointment) => new Date(appointment.start).getHours() === hour);
+          return `
+            <div class="hour-row">
+              <div class="hour-label">${hour > 12 ? hour - 12 : hour}:00 ${hour >= 12 ? "PM" : "AM"}</div>
+              <div class="hour-blocks">
+                ${blocks.length ? blocks.map((appointment) => appointmentButton(appointment)).join("") : '<span class="empty-hour">Open</span>'}
+              </div>
+            </div>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function renderWeekCalendar(appointments) {
+  const anchor = new Date($("#calendar-date")?.value || state.calendarDate);
+  const weekStart = startOfWeek(anchor);
+  const days = Array.from({ length: 7 }, (_, index) => addDaysToDate(weekStart, index));
+  $("#calendar-list").innerHTML = `
+    <div class="calendar-summary-grid">
+      ${days
+        .map((day) => {
+          const key = dateKey(day);
+          const blocks = appointmentsForDate(appointments, key);
+          return `
+            <article class="calendar-day-card">
+              <div class="panel-title">
+                <span>${new Intl.DateTimeFormat("en", { weekday: "short", month: "short", day: "numeric" }).format(day)}</span>
+                <button class="secondary-action count-button" data-calendar-jump="${key}" type="button">${blocks.length}</button>
+              </div>
+              <div class="appointment-scroll">
+                ${blocks.length ? blocks.map((appointment) => appointmentButton(appointment, true)).join("") : '<p class="muted">No appointments.</p>'}
+              </div>
+            </article>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function renderMonthCalendar(appointments) {
+  const anchor = new Date($("#calendar-date")?.value || state.calendarDate);
+  const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+  const gridStart = startOfWeek(first);
+  const days = Array.from({ length: 42 }, (_, index) => addDaysToDate(gridStart, index));
+  $("#calendar-list").innerHTML = `
+    <div class="calendar-month-title">${new Intl.DateTimeFormat("en", { month: "long", year: "numeric" }).format(anchor)}</div>
+    <div class="calendar-month-grid">
+      ${days
+        .map((day) => {
+          const key = dateKey(day);
+          const blocks = appointmentsForDate(appointments, key);
+          const muted = day.getMonth() === anchor.getMonth() ? "" : "muted-day";
+          return `
+            <article class="calendar-month-cell ${muted}">
+              <div class="panel-title">
+                <span>${day.getDate()}</span>
+                <button class="secondary-action count-button" data-calendar-jump="${key}" type="button">${blocks.length}</button>
+              </div>
+              <div class="appointment-scroll compact-scroll">
+                ${blocks.map((appointment) => appointmentButton(appointment, true)).join("") || '<span class="muted">Open</span>'}
+              </div>
+            </article>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function openAppointmentDetail(id) {
+  const appointment = (state.dashboard?.appointments || []).find((item) => item.id === id);
+  if (!appointment) return;
+  $("#appointment-detail").innerHTML = `
+    <div class="profile-hero">
+      <div>
+        <p class="eyebrow">Appointment</p>
+        <h2>${escapeHtml(appointment.service)}</h2>
+        <p class="meta-line">${compactDate(appointment.start)} · ${Number(appointment.durationMinutes || appointment.duration_minutes || 60)} minutes</p>
+      </div>
+      <div class="mini-panel">
+        <div class="meta-line"><span class="tag">${escapeHtml(appointment.status || "pending")}</span><span>${escapeHtml(appointment.artist || "Any artist")}</span></div>
+        <h3>${escapeHtml(appointment.customerName || appointment.customer_name)}</h3>
+        <p>${escapeHtml(appointment.contact || "")}</p>
+        <p class="muted">${escapeHtml(appointment.notes || "No notes saved.")}</p>
+      </div>
+    </div>
+  `;
+  $("#appointment-dialog").showModal();
+}
+
+function legacyCalendarList(appointments) {
+  return appointments
     .map(
       (appointment) => `
         <article class="calendar-item">
@@ -796,7 +1147,7 @@ function bindEvents() {
     if (bookId) openBooking(bookId);
 
     const favoriteId = event.target.closest("[data-favorite]")?.dataset.favorite;
-    if (favoriteId) toggleFavorite(favoriteId);
+    if (favoriteId) await toggleFavorite(favoriteId);
 
     const statusValue = event.target.closest("[data-inquiry-status]")?.dataset.inquiryStatus;
     if (statusValue) await updateInquiryStatus(statusValue);
@@ -806,10 +1157,34 @@ function bindEvents() {
 
     const emailReadId = event.target.closest("[data-email-read]")?.dataset.emailRead;
     if (emailReadId) await markEmailRead(emailReadId);
+
+    const appointmentId = event.target.closest("[data-appointment]")?.dataset.appointment;
+    if (appointmentId) openAppointmentDetail(appointmentId);
+
+    const jumpDate = event.target.closest("[data-calendar-jump]")?.dataset.calendarJump;
+    if (jumpDate) {
+      state.calendarDate = jumpDate;
+      $("#calendar-date").value = jumpDate;
+      state.calendarView = "day";
+      localStorage.setItem("hs_calendar_view", state.calendarView);
+      renderCalendar();
+    }
+
+    const customerMessageId = event.target.closest("[data-customer-message-read]")?.dataset.customerMessageRead;
+    if (customerMessageId) {
+      state.customerDashboard = await api(`/api/customer/messages/${encodeURIComponent(customerMessageId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ read: true })
+      });
+      renderCustomerDashboard();
+    }
   });
 
   $("#booking-form").addEventListener("submit", handleBookingSubmit);
+  $("#customer-login-form").addEventListener("submit", customerAuth);
+  $("#customer-signup-form").addEventListener("submit", customerAuth);
   $("#login-form").addEventListener("submit", login);
+  $("#business-signup-form").addEventListener("submit", businessSignup);
   $("#email-settings-form").addEventListener("submit", saveEmailSettings);
   $("#compose-email-form").addEventListener("submit", sendCustomerEmail);
   $("#refresh-mailbox").addEventListener("click", async () => {
@@ -826,17 +1201,42 @@ function bindEvents() {
   $("#art-form").addEventListener("submit", uploadArt);
   $("#employee-appointment-form").addEventListener("submit", addEmployeeAppointment);
   $("#refresh-dashboard").addEventListener("click", loadDashboard);
+  $("#calendar-date").value = state.calendarDate;
+  $("#calendar-date").addEventListener("change", (event) => {
+    state.calendarDate = event.target.value || new Date().toISOString().slice(0, 10);
+    renderCalendar();
+  });
+  $$('input[name="calendar-view"]').forEach((input) => {
+    input.checked = input.value === state.calendarView;
+    input.addEventListener("change", () => {
+      state.calendarView = input.value;
+      localStorage.setItem("hs_calendar_view", state.calendarView);
+      renderCalendar();
+    });
+  });
   $("#logout-button").addEventListener("click", () => {
     state.token = "";
     state.dashboard = null;
     localStorage.removeItem("hs_employee_token");
     $("#login-panel").hidden = false;
+    $("#business-signup").hidden = false;
     $("#dashboard").hidden = true;
     toast("Logged out.");
   });
+  $("#customer-logout-button").addEventListener("click", () => {
+    state.customerToken = "";
+    state.customerDashboard = null;
+    localStorage.removeItem("hs_customer_token");
+    renderCustomerDashboard();
+    renderParlors({ parlors: state.parlors, radius: Number($("#search-radius").value || 50), locationKnown: false });
+    toast("Customer logged out.");
+  });
 
-  $$(".tab-button").forEach((button) => {
+  $$("[data-tab]").forEach((button) => {
     button.addEventListener("click", () => activateTab(button.dataset.tab));
+  });
+  $$("[data-customer-tab]").forEach((button) => {
+    button.addEventListener("click", () => activateCustomerTab(button.dataset.customerTab));
   });
 }
 
@@ -844,7 +1244,18 @@ async function init() {
   bindEvents();
   setCustomerPrefsForm();
   await loadParlors({ location: "Nashville", radius: 100 });
+  if (state.customerToken) {
+    try {
+      await loadCustomerDashboard();
+    } catch {
+      state.customerToken = "";
+      localStorage.removeItem("hs_customer_token");
+    }
+  } else {
+    renderCustomerDashboard();
+  }
   renderFavorites();
+  renderCustomerGallery();
   if (state.token) {
     try {
       await loadDashboard();

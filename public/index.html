@@ -21,18 +21,70 @@
         </span>
       </a>
       <nav class="nav-links" aria-label="Primary navigation">
-        <a href="#customer-portal">Find a parlor</a>
-        <a href="#employee-area">Employee login</a>
-        <a href="#business-tools">Business tools</a>
+        <a href="#customer-login-page">Customer login</a>
+        <a href="#employee-area">Business login</a>
+        <a href="#business-signup">Studio signup</a>
       </nav>
     </header>
 
     <main>
+      <section class="entry-split" id="home" aria-label="Choose a portal">
+        <article class="entry-panel customer-entry">
+          <div>
+            <p class="eyebrow">Customers</p>
+            <h1>Find a studio, save favorites, and keep tattoo messages in one place.</h1>
+          </div>
+          <a class="primary-action" href="#customer-login-page">Customer login</a>
+        </article>
+        <article class="entry-panel business-entry">
+          <div>
+            <p class="eyebrow">Tattoo businesses</p>
+            <h1>Launch a studio page, book appointments, upload gallery art, and manage your inbox.</h1>
+          </div>
+          <a class="secondary-action" href="#business-signup">Business signup</a>
+        </article>
+      </section>
+
       <section class="hero" id="customer-portal" aria-label="Customer portal">
         <div class="hero-backdrop" aria-hidden="true"></div>
         <div class="hero-content">
-          <p class="eyebrow">Customer portal</p>
-          <h1>Find the right tattoo studio and request a consult.</h1>
+          <div class="customer-auth-grid" id="customer-login-page">
+            <div>
+              <p class="eyebrow">Customer login</p>
+              <h1>Search studios from your own tattoo dashboard.</h1>
+            </div>
+            <div class="auth-stack">
+              <form class="mini-panel" id="customer-login-form">
+                <div class="panel-title"><span>Customer login</span></div>
+                <label><span>Email</span><input name="email" type="email" autocomplete="email" required></label>
+                <label><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
+                <button class="primary-action" type="submit">Login</button>
+              </form>
+              <form class="mini-panel" id="customer-signup-form">
+                <div class="panel-title"><span>Create customer account</span></div>
+                <label><span>Name</span><input name="name" autocomplete="name" required></label>
+                <label><span>Email</span><input name="email" type="email" autocomplete="email" required></label>
+                <label><span>Phone</span><input name="phone" type="tel" autocomplete="tel"></label>
+                <label><span>Password</span><input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
+                <button class="secondary-action" type="submit">Create account</button>
+              </form>
+            </div>
+          </div>
+
+          <div class="customer-dashboard-bar" id="customer-dashboard" hidden>
+            <div>
+              <p class="eyebrow">Customer dashboard</p>
+              <h2 id="customer-dashboard-title">Welcome back</h2>
+            </div>
+            <div class="dashboard-tabs customer-tabs" role="tablist" aria-label="Customer dashboard sections">
+              <button class="tab-button is-active" data-customer-tab="search" type="button">Search</button>
+              <button class="tab-button" data-customer-tab="favorites" type="button">Favorites</button>
+              <button class="tab-button" data-customer-tab="inbox" type="button">Inbox <span class="badge-count" id="customer-inbox-count">0</span></button>
+              <button class="tab-button" data-customer-tab="gallery" type="button">Gallery</button>
+              <button class="ghost-action" id="customer-logout-button" type="button">Logout</button>
+            </div>
+          </div>
+
           <form class="search-panel" id="search-form">
             <label>
               <span>Parlor name or tattoo style</span>
@@ -64,7 +116,7 @@
         </div>
       </section>
 
-      <section class="portal-grid" aria-label="Search results and booking queue">
+      <section class="portal-grid customer-tab-panel is-active" id="customer-tab-search" aria-label="Search results and booking queue">
         <div class="section-head">
           <div>
             <p class="eyebrow">Nearby studios</p>
@@ -111,6 +163,36 @@
         </div>
       </section>
 
+      <section class="portal-grid customer-tab-panel" id="customer-tab-favorites" aria-label="Saved tattoo studios">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Saved studios</p>
+            <h2>Your favorites</h2>
+          </div>
+        </div>
+        <div class="results-list" id="customer-favorite-results"></div>
+      </section>
+
+      <section class="portal-grid customer-tab-panel" id="customer-tab-inbox" aria-label="Customer inbox">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Customer inbox</p>
+            <h2>Booking messages</h2>
+          </div>
+        </div>
+        <div class="message-list" id="customer-message-list"></div>
+      </section>
+
+      <section class="portal-grid customer-tab-panel" id="customer-tab-gallery" aria-label="Favorite studio gallery">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Gallery</p>
+            <h2>Art from studios you saved</h2>
+          </div>
+        </div>
+        <div class="art-wall gallery-wall" id="customer-gallery"></div>
+      </section>
+
       <section class="business-strip" id="business-tools" aria-label="Tattoo business tools">
         <div>
           <p class="eyebrow">Business portal</p>
@@ -120,9 +202,39 @@
       </section>
 
       <section class="employee-shell" id="employee-area" aria-label="Employee login and dashboard">
+        <div class="login-panel signup-panel" id="business-signup">
+          <div>
+            <p class="eyebrow">Business signup</p>
+            <h2>Create a tattoo studio account</h2>
+            <p class="muted">After signup, the studio opens on the Subscription page. Once Stripe confirms payment, the gallery, calendar, inbox, customers, and profile tools unlock.</p>
+          </div>
+          <form id="business-signup-form" class="login-form">
+            <div class="form-row">
+              <label><span>Studio name</span><input name="businessName" required></label>
+              <label><span>Owner name</span><input name="ownerName" required></label>
+            </div>
+            <div class="form-row">
+              <label><span>Email</span><input name="email" type="email" autocomplete="email" required></label>
+              <label><span>Password</span><input name="password" type="password" minlength="8" autocomplete="new-password" required></label>
+            </div>
+            <div class="form-row">
+              <label><span>Phone</span><input name="phone" type="tel" required></label>
+              <label><span>Website</span><input name="website" type="url"></label>
+            </div>
+            <div class="form-row">
+              <label><span>City</span><input name="city" required></label>
+              <label><span>State</span><input name="state" maxlength="2" required></label>
+            </div>
+            <label><span>Address</span><input name="address"></label>
+            <label><span>Specialties</span><input name="specialties" placeholder="blackwork, realism, cover-ups"></label>
+            <label><span>Bio</span><textarea name="bio" rows="3"></textarea></label>
+            <button class="primary-action" type="submit">Create studio and subscribe</button>
+          </form>
+        </div>
+
         <div class="login-panel" id="login-panel">
           <div>
-            <p class="eyebrow">Employee login</p>
+            <p class="eyebrow">Business login</p>
             <h2>Studio command center</h2>
             <p class="muted">Demo login: studio@hollerandson.ink / inkmaster2026</p>
           </div>
@@ -157,7 +269,7 @@
             <button class="tab-button" data-tab="inbox" type="button">Inbox</button>
             <button class="tab-button" data-tab="mailbox" type="button">Mailbox</button>
             <button class="tab-button" data-tab="profile" type="button">Studio page</button>
-            <button class="tab-button" data-tab="art" type="button">Art wall</button>
+            <button class="tab-button" data-tab="art" type="button">Gallery upload</button>
             <button class="tab-button" data-tab="customers" type="button">Customers</button>
             <button class="tab-button" data-tab="subscription" type="button">Subscription</button>
           </div>
@@ -171,6 +283,14 @@
                     <h3>Appointment tracker</h3>
                   </div>
                   <button class="secondary-action" id="refresh-dashboard" type="button">Refresh</button>
+                </div>
+                <div class="calendar-toolbar" aria-label="Calendar view controls">
+                  <div class="segmented compact" role="radiogroup" aria-label="Calendar view">
+                    <label><input type="radio" name="calendar-view" value="day" checked><span>Day</span></label>
+                    <label><input type="radio" name="calendar-view" value="week"><span>Week</span></label>
+                    <label><input type="radio" name="calendar-view" value="month"><span>Month</span></label>
+                  </div>
+                  <input id="calendar-date" type="date">
                 </div>
                 <div class="calendar-list" id="calendar-list"></div>
               </div>
@@ -304,7 +424,7 @@
               <div>
                 <div class="section-head tight">
                   <div>
-                    <p class="eyebrow">Public art wall</p>
+                    <p class="eyebrow">Gallery upload</p>
                     <h3>Portfolio gallery</h3>
                   </div>
                 </div>
@@ -400,7 +520,12 @@
       </form>
     </dialog>
 
+    <dialog id="appointment-dialog" class="app-dialog booking-dialog">
+      <button class="dialog-close" data-close-dialog="appointment-dialog" aria-label="Close appointment">X</button>
+      <div id="appointment-detail"></div>
+    </dialog>
+
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260626-mailbox" defer></script>
+    <script src="/app.js?v=20260626-dashboard" defer></script>
   </body>
 </html>

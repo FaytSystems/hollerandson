@@ -51,6 +51,43 @@ CREATE TABLE IF NOT EXISTS customers (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS customer_accounts (
+  id TEXT PRIMARY KEY,
+  customer_id TEXT NOT NULL UNIQUE REFERENCES customers(id) ON DELETE CASCADE,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS customer_sessions (
+  token TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES customer_accounts(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS customer_favorites (
+  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (customer_id, business_id)
+);
+
+CREATE TABLE IF NOT EXISTS customer_messages (
+  id TEXT PRIMARY KEY,
+  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  business_id TEXT REFERENCES businesses(id) ON DELETE SET NULL,
+  direction TEXT NOT NULL DEFAULT 'incoming',
+  status TEXT NOT NULL DEFAULT 'new',
+  from_name TEXT NOT NULL DEFAULT 'Holler & Son',
+  subject TEXT NOT NULL,
+  preview TEXT DEFAULT '',
+  body TEXT DEFAULT '',
+  read INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS inquiries (
   id TEXT PRIMARY KEY,
   customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
@@ -174,6 +211,10 @@ CREATE INDEX IF NOT EXISTS idx_inquiries_business ON inquiries(business_id, crea
 CREATE INDEX IF NOT EXISTS idx_appointments_business ON appointments(business_id, start);
 CREATE INDEX IF NOT EXISTS idx_inbox_business ON inbox(business_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_employee ON sessions(employee_id);
+CREATE INDEX IF NOT EXISTS idx_customer_accounts_email ON customer_accounts(email);
+CREATE INDEX IF NOT EXISTS idx_customer_sessions_account ON customer_sessions(account_id);
+CREATE INDEX IF NOT EXISTS idx_customer_favorites_customer ON customer_favorites(customer_id);
+CREATE INDEX IF NOT EXISTS idx_customer_messages_customer ON customer_messages(customer_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_email_settings_address ON business_email_settings(local_part, domain);
 CREATE INDEX IF NOT EXISTS idx_email_messages_business ON email_messages(business_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_business ON subscriptions(business_id);

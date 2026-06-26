@@ -201,6 +201,61 @@ async function getBusiness(env, idOrSlug) {
   return env.DB.prepare("SELECT * FROM businesses WHERE id = ? OR slug = ? LIMIT 1").bind(idOrSlug, idOrSlug).first();
 }
 
+async function uniqueSlug(env, value) {
+  const base = emailLocalPart(value).slice(0, 52) || "studio";
+  let slug = base;
+  let counter = 2;
+  while (await getBusiness(env, slug)) {
+    slug = `${base}-${counter}`;
+    counter += 1;
+  }
+  return slug;
+}
+
+function publicCustomer(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email || "",
+    phone: row.phone || "",
+    preferredContact: row.preferred_contact || "email",
+    updatedAt: row.updated_at
+  };
+}
+
+async function customerDashboard(env, customer) {
+  const { results: favoriteRows } = await env.DB.prepare(
+    `SELECT b.*
+     FROM customer_favorites f
+     JOIN businesses b ON b.id = f.business_id
+     WHERE f.customer_id = ?
+     ORDER BY f.created_at DESC`
+  )
+    .bind(customer.id)
+    .all();
+  const favorites = [];
+  for (const row of favoriteRows || []) {
+    favorites.push(publicBusiness(row, await getArt(env, row.id)));
+  }
+  const { results: messages } = await env.DB.prepare(
+    `SELECT
+      id, business_id AS businessId, direction, status, from_name AS fromName,
+      subject, preview, body, read, created_at AS createdAt
+     FROM customer_messages
+     WHERE customer_id = ?
+     ORDER BY created_at DESC
+     LIMIT 120`
+  )
+    .bind(customer.id)
+    .all();
+  return {
+    customer: publicCustomer(customer),
+    favorites,
+    messages: (messages || []).map((message) => ({ ...message, read: Boolean(message.read) })),
+    unreadCount: (messages || []).filter((message) => !message.read).length
+  };
+}
+
 async function getSubscription(env, businessId) {
   return env.DB.prepare(
     "SELECT * FROM subscriptions WHERE business_id = ? ORDER BY updated_at DESC LIMIT 1"
@@ -446,6 +501,33 @@ async function sendBusinessEmail(env, business, settings, payload) {
       createdAt
     )
     .run();
+  const { results: matchedCustomers } = await env.DB.prepare(
+    "SELECT id FROM customers WHERE lower(email) = lower(?)"
+  )
+    .bind(to)
+    .all();
+  for (const customer of matchedCustomers || []) {
+    await env.DB.prepare(
+      `INSERT INTO customer_messages (
+        id, customer_id, business_id, direction, status, from_name,
+        subject, preview, body, read, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(
+        randomId("custmsg"),
+        customer.id,
+        business.id,
+        "incoming",
+        delivery.ok ? "sent" : "saved",
+        business.name,
+        subject,
+        message.slice(0, 220),
+        text,
+        0,
+        createdAt
+      )
+      .run();
+  }
   return json({ ok: delivery.ok, delivery, message: { to, subject, createdAt } }, delivery.ok ? 201 : 202);
 }
 
@@ -559,6 +641,35 @@ function bearerToken(request) {
   return match ? match[1] : "";
 }
 
+async function customerAuthContext(env, request) {
+  const token = request.headers.get("X-Customer-Token") || "";
+  if (!token) return null;
+  const session = await env.DB.prepare(
+    `SELECT
+      s.token, s.expires_at, a.id AS account_id, a.customer_id,
+      c.name, c.email, c.phone, c.preferred_contact, c.updated_at
+     FROM customer_sessions s
+     JOIN customer_accounts a ON a.id = s.account_id
+     JOIN customers c ON c.id = a.customer_id
+     WHERE s.token = ?
+     LIMIT 1`
+  )
+    .bind(token)
+    .first();
+  if (!session || new Date(session.expires_at).getTime() < Date.now()) return null;
+  return {
+    account: { id: session.account_id, customerId: session.customer_id },
+    customer: {
+      id: session.customer_id,
+      name: session.name,
+      email: session.email,
+      phone: session.phone,
+      preferred_contact: session.preferred_contact,
+      updated_at: session.updated_at
+    }
+  };
+}
+
 async function authContext(env, request) {
   const token = bearerToken(request);
   if (!token) return null;
@@ -624,7 +735,13 @@ async function searchParlors(env, url) {
   });
 }
 
-async function createInquiry(env, body) {
+async function createInquiry(env, body, customerAuth = null) {
+  if (customerAuth) {
+    body.customerName ||= customerAuth.customer.name;
+    body.email ||= customerAuth.customer.email;
+    body.phone ||= customerAuth.customer.phone;
+    body.saveCustomer = true;
+  }
   const business = await getBusiness(env, clean(body.businessId || body.parlorId));
   if (!business) return json({ error: "Tattoo parlor was not found." }, 404);
 
@@ -640,8 +757,14 @@ async function createInquiry(env, body) {
   if (!body.preferredDate || !body.preferredTime) return json({ error: "Preferred date and time are required." }, 400);
 
   const createdAt = nowIso();
-  let customerId = null;
-  if (body.saveCustomer) {
+  let customerId = customerAuth?.customer.id || null;
+  if (customerAuth) {
+    await env.DB.prepare(
+      "UPDATE customers SET name = ?, email = ?, phone = ?, preferred_contact = ?, updated_at = ? WHERE id = ?"
+    )
+      .bind(customerName, email, phone, contactMethod, createdAt, customerId)
+      .run();
+  } else if (body.saveCustomer) {
     const existing = await env.DB.prepare(
       "SELECT * FROM customers WHERE (email <> '' AND lower(email) = lower(?)) OR (phone <> '' AND phone = ?) LIMIT 1"
     ).bind(email, phone).first();
@@ -747,6 +870,26 @@ async function createInquiry(env, body) {
     0,
     createdAt
   ).run();
+
+  if (customerId) {
+    await env.DB.prepare(
+      "INSERT INTO customer_messages (id, customer_id, business_id, direction, status, from_name, subject, preview, body, read, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+      .bind(
+        randomId("custmsg"),
+        customerId,
+        business.id,
+        "outgoing",
+        "sent",
+        "You",
+        `Appointment request sent to ${business.name}`,
+        `${service} request for ${appointment.start}.`,
+        `Your ${service} request was sent to ${business.name}. The studio can contact you by ${contactMethod}.`,
+        0,
+        createdAt
+      )
+      .run();
+  }
 
   return json({ ok: true, inquiry, appointment, emailDelivery: delivery }, 201);
 }
@@ -956,6 +1099,162 @@ async function api(request, env) {
     });
   }
 
+  if (method === "POST" && url.pathname === "/api/business/signup") {
+    const body = await request.json();
+    const name = clean(body.businessName || body.name);
+    const ownerName = clean(body.ownerName || "Studio owner");
+    const email = clean(body.email).toLowerCase();
+    const password = clean(body.password);
+    const phone = clean(body.phone);
+    const city = clean(body.city);
+    const state = clean(body.state).toUpperCase();
+    if (!name) return json({ error: "Business name is required." }, 400);
+    if (!email || !email.includes("@")) return json({ error: "A valid business email is required." }, 400);
+    if (password.length < 8) return json({ error: "Password must be at least 8 characters." }, 400);
+    const existingEmployee = await env.DB.prepare("SELECT id FROM employees WHERE lower(email) = lower(?) LIMIT 1")
+      .bind(email)
+      .first();
+    if (existingEmployee) return json({ error: "A business login already exists for that email." }, 409);
+
+    const createdAt = nowIso();
+    const slug = await uniqueSlug(env, name);
+    const locationGuess = geocode(`${city} ${state}`) || geocode(city) || LOCATION_INDEX.nashville;
+    await env.DB.prepare(
+      `INSERT INTO businesses (
+        id, slug, name, address, city, state, postal_code, lat, lng, phone, email, website,
+        bio, hours, min_deposit, specialties_json, artists_json, socials_json, featured, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(
+        slug,
+        slug,
+        name,
+        clean(body.address),
+        city || locationGuess.label.split(",")[0],
+        state || clean(locationGuess.label.split(",")[1] || "TN"),
+        clean(body.postalCode),
+        Number(body.lat || locationGuess.lat),
+        Number(body.lng || locationGuess.lng),
+        phone,
+        email,
+        clean(body.website),
+        clean(body.bio, "New Holler & Son studio profile. Add a bio, gallery, artists, and booking details after subscribing."),
+        clean(body.hours, "By appointment"),
+        Number(body.minDeposit || 0),
+        JSON.stringify(list(body.specialties || body.styles)),
+        JSON.stringify(list(body.artists || ownerName)),
+        JSON.stringify({
+          instagram: clean(body.instagram),
+          facebook: clean(body.facebook),
+          tiktok: clean(body.tiktok)
+        }),
+        0,
+        createdAt,
+        createdAt
+      )
+      .run();
+    const employeeId = randomId("emp");
+    await env.DB.prepare(
+      "INSERT INTO employees (id, business_id, name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    )
+      .bind(employeeId, slug, ownerName, email, await sha256(password), "Owner", createdAt)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO subscriptions (
+        id, business_id, stripe_customer_id, stripe_subscription_id, stripe_price_id,
+        status, current_period_end, cancel_at_period_end, last_event_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(randomId("sub"), slug, "", `pending_${slug}`, "", "incomplete", "", 0, "signup", createdAt, createdAt)
+      .run();
+    const business = await getBusiness(env, slug);
+    await ensureEmailSettings(env, business);
+    const token = randomId("session");
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 12).toISOString();
+    await env.DB.prepare("INSERT INTO sessions (token, employee_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
+      .bind(token, employeeId, createdAt, expiresAt)
+      .run();
+    return json(
+      {
+        ok: true,
+        token,
+        employee: { id: employeeId, name: ownerName, email, role: "Owner" },
+        business: publicBusiness(business, []),
+        access: accessForSubscription(await getSubscription(env, slug))
+      },
+      201
+    );
+  }
+
+  if (method === "POST" && (url.pathname === "/api/customer/signup" || url.pathname === "/api/customer/login")) {
+    const body = await request.json();
+    const email = clean(body.email).toLowerCase();
+    const password = clean(body.password);
+    if (!email || !email.includes("@")) return json({ error: "A valid email is required." }, 400);
+    if (password.length < 8) return json({ error: "Password must be at least 8 characters." }, 400);
+    const passwordHash = await sha256(password);
+    let account = await env.DB.prepare("SELECT * FROM customer_accounts WHERE lower(email) = lower(?) LIMIT 1")
+      .bind(email)
+      .first();
+    let customer = null;
+    const createdAt = nowIso();
+
+    if (url.pathname === "/api/customer/signup") {
+      if (account) return json({ error: "A customer account already exists for that email." }, 409);
+      customer = await env.DB.prepare("SELECT * FROM customers WHERE lower(email) = lower(?) LIMIT 1").bind(email).first();
+      const customerId = customer?.id || randomId("cust");
+      if (customer) {
+        await env.DB.prepare(
+          "UPDATE customers SET name = ?, email = ?, phone = ?, preferred_contact = ?, updated_at = ? WHERE id = ?"
+        )
+          .bind(clean(body.name, customer.name), email, clean(body.phone, customer.phone), "email", createdAt, customer.id)
+          .run();
+      } else {
+        await env.DB.prepare(
+          "INSERT INTO customers (id, name, email, phone, preferred_contact, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        )
+          .bind(customerId, clean(body.name, "Tattoo collector"), email, clean(body.phone), "email", createdAt, createdAt)
+          .run();
+      }
+      const accountId = randomId("custacct");
+      await env.DB.prepare(
+        "INSERT INTO customer_accounts (id, customer_id, email, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
+      )
+        .bind(accountId, customerId, email, passwordHash, createdAt, createdAt)
+        .run();
+      await env.DB.prepare(
+        "INSERT INTO customer_messages (id, customer_id, business_id, direction, status, from_name, subject, preview, body, read, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      )
+        .bind(
+          randomId("custmsg"),
+          customerId,
+          "",
+          "incoming",
+          "new",
+          "Holler & Son",
+          "Welcome to Holler & Son",
+          "Your customer dashboard is ready. Search studios, save favorites, and keep booking messages in one place.",
+          "Your customer dashboard is ready. Search studios, save favorites, and keep booking messages in one place.",
+          0,
+          createdAt
+        )
+        .run();
+      account = { id: accountId, customer_id: customerId };
+    } else {
+      if (!account || account.password_hash !== passwordHash) return json({ error: "Invalid customer login." }, 401);
+    }
+
+    const customerId = account.customer_id;
+    customer = await env.DB.prepare("SELECT * FROM customers WHERE id = ? LIMIT 1").bind(customerId).first();
+    const token = randomId("custsession");
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 14).toISOString();
+    await env.DB.prepare("DELETE FROM customer_sessions WHERE expires_at < ?").bind(nowIso()).run();
+    await env.DB.prepare("INSERT INTO customer_sessions (token, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
+      .bind(token, account.id, createdAt, expiresAt)
+      .run();
+    return json({ token, dashboard: await customerDashboard(env, customer) });
+  }
+
   if (method === "POST" && url.pathname === "/api/employee/login") {
     const body = await request.json();
     const email = clean(body.email).toLowerCase();
@@ -979,7 +1278,48 @@ async function api(request, env) {
   }
 
   if (method === "POST" && url.pathname === "/api/inquiries") {
-    return createInquiry(env, await request.json());
+    return createInquiry(env, await request.json(), await customerAuthContext(env, request));
+  }
+
+  const customerProtected =
+    url.pathname === "/api/customer/dashboard" ||
+    url.pathname === "/api/customer/favorites" ||
+    url.pathname.startsWith("/api/customer/favorites/") ||
+    url.pathname.startsWith("/api/customer/messages/");
+  const customerAuth = customerProtected ? await customerAuthContext(env, request) : null;
+  if (customerProtected && !customerAuth) return json({ error: "Customer login required." }, 401);
+
+  if (method === "GET" && url.pathname === "/api/customer/dashboard") {
+    return json(await customerDashboard(env, customerAuth.customer));
+  }
+
+  if (method === "POST" && url.pathname === "/api/customer/favorites") {
+    const body = await request.json();
+    const business = await getBusiness(env, clean(body.businessId));
+    if (!business) return json({ error: "Studio not found." }, 404);
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO customer_favorites (customer_id, business_id, created_at) VALUES (?, ?, ?)"
+    )
+      .bind(customerAuth.customer.id, business.id, nowIso())
+      .run();
+    return json(await customerDashboard(env, customerAuth.customer));
+  }
+
+  const customerFavoriteDelete = url.pathname.match(/^\/api\/customer\/favorites\/([^/]+)$/);
+  if (method === "DELETE" && customerFavoriteDelete) {
+    await env.DB.prepare("DELETE FROM customer_favorites WHERE customer_id = ? AND business_id = ?")
+      .bind(customerAuth.customer.id, decodeURIComponent(customerFavoriteDelete[1]))
+      .run();
+    return json(await customerDashboard(env, customerAuth.customer));
+  }
+
+  const customerMessagePatch = url.pathname.match(/^\/api\/customer\/messages\/([^/]+)$/);
+  if (method === "PATCH" && customerMessagePatch) {
+    const body = await request.json();
+    await env.DB.prepare("UPDATE customer_messages SET read = ? WHERE id = ? AND customer_id = ?")
+      .bind(body.read ? 1 : 0, decodeURIComponent(customerMessagePatch[1]), customerAuth.customer.id)
+      .run();
+    return json(await customerDashboard(env, customerAuth.customer));
   }
 
   const protectedRoute =

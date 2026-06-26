@@ -5,9 +5,11 @@ A Cloudflare-ready tattoo appointment marketplace and studio portal.
 ## What is included
 
 - Customer portal with parlor name, style, location, and radius search.
+- Customer accounts with saved favorite studios, inbox badge, booking messages, and a dashboard gallery.
+- Business signup that creates a searchable studio profile immediately and sends the owner to the Stripe subscription step.
 - Public tattoo parlor pages with phone, email, location, website, social links, bio, artists, specialties, hours, art wall, and appointment button.
 - Appointment request flow where customers choose phone or email contact.
-- Employee login area with inbox, inquiry status, calendar, customer records, public profile editing, and art uploads.
+- Business login area with inbox, inquiry status, day/week/month calendar, customer records, public profile editing, gallery uploads, and subscription tools.
 - Email notification hook for tattoo businesses through Resend.
 - Professional per-business email addresses with in-house inboxes, outbound customer email, and optional forwarding.
 - Stripe monthly-fee buy button in the employee subscription tab.
@@ -34,6 +36,8 @@ Employee demo login:
 studio@hollerandson.ink
 inkmaster2026
 ```
+
+Customer accounts can be created from the landing page. New customer favorites and inbox messages are saved through D1 in production and through `data/store.json` locally.
 
 Run checks:
 
@@ -102,6 +106,8 @@ Apply the schema to production:
 ```powershell
 npx wrangler d1 execute hollerandson --remote --file=cloudflare/schema.sql
 ```
+
+Run the schema command again after pulling this version so D1 gets the customer account, favorites, and customer message tables.
 
 Deploy:
 
@@ -181,6 +187,8 @@ The Stripe buy button is created in `public/app.js` after employee login so it c
 - `customer-email`: the logged-in employee email.
 
 Stripe sends `client_reference_id` back in the `checkout.session.completed` webhook, allowing the site to activate the matching tattoo business account.
+
+New business signups create an `incomplete` subscription record and show the Subscription tab first. The studio appears in search immediately, while paid tools remain locked until Stripe sends an active or trialing subscription status through the webhook.
 
 The buy button uses:
 

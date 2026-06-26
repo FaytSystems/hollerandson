@@ -46,9 +46,19 @@ assert.ok(worker.includes("/api/stripe/webhook"), "Cloudflare Stripe webhook rou
 assert.ok(worker.includes("verifyStripeSignature"), "Cloudflare webhook signature verification is present");
 assert.ok(worker.includes("async email(message, env"), "Cloudflare inbound email handler is present");
 assert.ok(worker.includes("/api/business/email/send"), "Business email send route is present");
+assert.ok(serverTextIncludes("server.js", "/api/business/signup"), "Business signup route is present");
+assert.ok(app.includes("/api/customer/signup"), "Customer signup route is present in the client");
+assert.ok(index.includes("customer-dashboard"), "Customer dashboard shell is present");
+assert.ok(index.includes("calendar-view"), "Calendar view controls are present");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS subscriptions"), "D1 subscription table is present");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS stripe_events"), "D1 Stripe event idempotency table is present");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS business_email_settings"), "D1 business email settings table is present");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS email_messages"), "D1 mailbox message table is present");
+assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS customer_accounts"), "D1 customer account table is present");
+assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS customer_favorites"), "D1 customer favorites table is present");
+
+function serverTextIncludes(file, value) {
+  return fs.readFileSync(path.join(root, file), "utf8").includes(value);
+}
 
 console.log("Holler & Son checks passed.");

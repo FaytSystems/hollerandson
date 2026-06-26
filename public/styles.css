@@ -113,8 +113,51 @@ a {
   color: var(--paper);
 }
 
+.entry-split {
+  min-height: calc(100vh - 76px);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid var(--line);
+}
+
+.entry-panel {
+  position: relative;
+  display: grid;
+  align-content: end;
+  gap: 1.4rem;
+  min-height: 520px;
+  padding: clamp(1.25rem, 4vw, 4rem);
+  overflow: hidden;
+}
+
+.entry-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background: url("/assets/tattoo-studio-hero.png") center / cover no-repeat;
+  filter: saturate(1.05) contrast(1.06);
+}
+
+.entry-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(13, 12, 12, 0.34), rgba(13, 12, 12, 0.92));
+}
+
+.business-entry::before {
+  transform: scaleX(-1);
+}
+
+.entry-panel h1 {
+  max-width: 640px;
+  font-size: clamp(2.15rem, 4.5vw, 5.2rem);
+}
+
 .hero {
-  min-height: 86vh;
+  min-height: 74vh;
   position: relative;
   display: grid;
   align-items: center;
@@ -136,6 +179,53 @@ a {
   width: min(1080px, calc(100% - 2rem));
   margin: 0 auto;
   padding: 5rem 0 6rem;
+}
+
+.customer-auth-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 420px);
+  gap: 1rem;
+  align-items: end;
+  margin-bottom: 1rem;
+}
+
+.auth-stack {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.customer-dashboard-bar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(23, 20, 20, 0.82);
+  backdrop-filter: blur(18px);
+}
+
+.badge-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.35rem;
+  min-height: 1.35rem;
+  margin-left: 0.35rem;
+  border-radius: 50%;
+  color: #170d0d;
+  background: var(--amber);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.customer-tab-panel {
+  display: none;
+}
+
+.customer-tab-panel.is-active {
+  display: block;
 }
 
 .eyebrow {
@@ -397,6 +487,11 @@ textarea:focus {
   overflow: hidden;
 }
 
+.segmented.compact {
+  grid-template-columns: repeat(3, minmax(4.5rem, 1fr));
+  width: min(420px, 100%);
+}
+
 .segmented label {
   display: grid;
 }
@@ -448,6 +543,11 @@ textarea:focus {
   align-items: center;
   padding: 1.25rem;
   border-radius: 8px;
+}
+
+.signup-panel {
+  grid-template-columns: minmax(260px, 0.75fr) minmax(0, 1.25fr);
+  margin-bottom: 1rem;
 }
 
 .dashboard {
@@ -512,6 +612,126 @@ textarea:focus {
   gap: 0.8rem;
 }
 
+.calendar-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+
+.calendar-toolbar > input {
+  max-width: 12rem;
+}
+
+.calendar-day-view {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.hour-row {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr);
+  min-height: 4.4rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.hour-label {
+  display: grid;
+  place-items: center;
+  color: var(--amber);
+  background: rgba(242, 187, 100, 0.08);
+  border-right: 1px solid var(--line);
+  font-weight: 900;
+}
+
+.hour-blocks {
+  display: grid;
+  gap: 0.45rem;
+  align-content: start;
+  padding: 0.55rem;
+}
+
+.empty-hour {
+  color: var(--dim);
+}
+
+.appointment-block {
+  display: grid;
+  gap: 0.18rem;
+  width: 100%;
+  padding: 0.7rem;
+  text-align: left;
+  color: var(--paper);
+  border: 1px solid rgba(97, 182, 179, 0.32);
+  border-radius: 6px;
+  background: linear-gradient(135deg, rgba(97, 182, 179, 0.16), rgba(158, 31, 54, 0.18));
+}
+
+.appointment-block span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.calendar-summary-grid,
+.calendar-month-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.calendar-summary-grid {
+  grid-template-columns: repeat(7, minmax(150px, 1fr));
+  overflow-x: auto;
+}
+
+.calendar-day-card,
+.calendar-month-cell {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.appointment-scroll {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 17rem;
+  overflow: auto;
+}
+
+.compact-scroll {
+  max-height: 8.5rem;
+}
+
+.count-button {
+  min-height: 2.1rem;
+  min-width: 2.1rem;
+  padding: 0.35rem 0.6rem;
+}
+
+.calendar-month-title {
+  color: var(--amber);
+  font-weight: 900;
+  margin-bottom: 0.6rem;
+}
+
+.calendar-month-grid {
+  grid-template-columns: repeat(7, minmax(120px, 1fr));
+  overflow-x: auto;
+}
+
+.calendar-month-cell {
+  min-height: 11rem;
+}
+
+.muted-day {
+  opacity: 0.48;
+}
+
 .calendar-item,
 .inquiry-item,
 .message-item,
@@ -536,6 +756,11 @@ textarea:focus {
 }
 
 .mailbox-item.unread {
+  border-color: rgba(242, 187, 100, 0.46);
+  background: rgba(242, 187, 100, 0.08);
+}
+
+.message-item.unread {
   border-color: rgba(242, 187, 100, 0.46);
   background: rgba(242, 187, 100, 0.08);
 }
@@ -573,6 +798,10 @@ textarea:focus {
 
 .art-wall {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.gallery-wall {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .art-tile {
@@ -722,6 +951,8 @@ th {
 }
 
 @media (max-width: 1020px) {
+  .entry-split,
+  .customer-auth-grid,
   .search-panel,
   .results-layout,
   .login-panel,
@@ -733,8 +964,15 @@ th {
   }
 
   .results-list,
-  .profile-grid {
+  .profile-grid,
+  .gallery-wall {
     grid-template-columns: 1fr;
+  }
+
+  .customer-dashboard-bar,
+  .calendar-toolbar {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .customer-side {
@@ -766,8 +1004,15 @@ th {
 
   .customer-side,
   .form-row,
-  .art-wall {
+  .art-wall,
+  .hour-row {
     grid-template-columns: 1fr;
+  }
+
+  .hour-label {
+    min-height: 2.5rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
   }
 
   .portal-grid,

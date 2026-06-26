@@ -136,6 +136,10 @@ function createSeedStore() {
       }
     ],
     sessions: [],
+    customerAccounts: [],
+    customerSessions: [],
+    customerFavorites: [],
+    customerMessages: [],
     businesses: [
       {
         id: "holler-and-son",
@@ -398,6 +402,12 @@ async function readStore() {
     store.customers = [];
     changed = true;
   }
+  for (const key of ["customerAccounts", "customerSessions", "customerFavorites", "customerMessages"]) {
+    if (!Array.isArray(store[key])) {
+      store[key] = [];
+      changed = true;
+    }
+  }
   if (changed) await writeStore(store);
   return store;
 }
@@ -515,6 +525,77 @@ function findBusiness(store, idOrSlug) {
   return store.businesses.find(
     (business) => business.id === idOrSlug || business.slug === idOrSlug
   );
+}
+
+function uniqueSlug(store, value) {
+  const base = emailLocalPart(value).slice(0, 52) || "studio";
+  let slug = base;
+  let counter = 2;
+  while (findBusiness(store, slug)) {
+    slug = `${base}-${counter}`;
+    counter += 1;
+  }
+  return slug;
+}
+
+function publicCustomer(customer) {
+  return {
+    id: customer.id,
+    name: customer.name,
+    email: customer.email || "",
+    phone: customer.phone || "",
+    preferredContact: customer.preferredContact || "email",
+    updatedAt: customer.updatedAt
+  };
+}
+
+function getCustomerByAccount(store, account) {
+  return store.customers.find((customer) => customer.id === account.customerId) || null;
+}
+
+function customerDashboard(store, customer) {
+  const favorites = (store.customerFavorites || [])
+    .filter((favorite) => favorite.customerId === customer.id)
+    .map((favorite) => findBusiness(store, favorite.businessId))
+    .filter(Boolean)
+    .map((business) => publicBusiness(business));
+  const messages = (store.customerMessages || [])
+    .filter((message) => message.customerId === customer.id)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  return {
+    customer: publicCustomer(customer),
+    favorites,
+    messages,
+    unreadCount: messages.filter((message) => !message.read).length
+  };
+}
+
+function getCustomerAuthContext(store, req) {
+  const token = req.headers["x-customer-token"] || "";
+  if (!token) return null;
+  const session = (store.customerSessions || []).find((candidate) => candidate.token === token);
+  if (!session || new Date(session.expiresAt).getTime() < Date.now()) return null;
+  const account = (store.customerAccounts || []).find((candidate) => candidate.id === session.accountId);
+  const customer = account ? getCustomerByAccount(store, account) : null;
+  return account && customer ? { account, customer, session } : null;
+}
+
+function addCustomerMessage(store, customerId, payload) {
+  const message = {
+    id: randomId("custmsg"),
+    customerId,
+    businessId: payload.businessId || "",
+    direction: payload.direction || "incoming",
+    status: payload.status || "new",
+    fromName: payload.fromName || "Holler & Son",
+    subject: payload.subject || "Message",
+    preview: payload.preview || "",
+    body: payload.body || payload.preview || "",
+    read: Boolean(payload.read),
+    createdAt: payload.createdAt || nowIso()
+  };
+  store.customerMessages.push(message);
+  return message;
 }
 
 function findAppointment(store, businessId, appointmentId) {
@@ -698,6 +779,21 @@ async function sendBusinessEmail(store, business, settings, body) {
     read: true,
     createdAt
   });
+  for (const customer of store.customers || []) {
+    if (customer.email && customer.email.toLowerCase() === to.toLowerCase()) {
+      addCustomerMessage(store, customer.id, {
+        businessId: business.id,
+        direction: "incoming",
+        status: delivery.ok ? "sent" : "saved",
+        fromName: business.name,
+        subject,
+        preview: message.slice(0, 220),
+        body: text,
+        read: false,
+        createdAt
+      });
+    }
+  }
   return { status: delivery.ok ? 201 : 202, payload: { ok: delivery.ok, delivery, message: { to, subject, createdAt } } };
 }
 
@@ -1047,6 +1143,158 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { business: publicBusiness(business) });
   }
 
+  if (method === "POST" && pathname === "/api/business/signup") {
+    const body = await readJsonBody(req);
+    const name = cleanString(body.businessName || body.name);
+    const ownerName = cleanString(body.ownerName || "Studio owner");
+    const email = cleanString(body.email).toLowerCase();
+    const password = cleanString(body.password);
+    const phone = cleanString(body.phone);
+    const city = cleanString(body.city);
+    const state = cleanString(body.state).toUpperCase();
+    if (!name) return sendJson(res, 400, { error: "Business name is required." });
+    if (!ownerName) return sendJson(res, 400, { error: "Owner name is required." });
+    if (!email || !email.includes("@")) return sendJson(res, 400, { error: "A valid business email is required." });
+    if (password.length < 8) return sendJson(res, 400, { error: "Password must be at least 8 characters." });
+    if (store.employees.some((employee) => employee.email.toLowerCase() === email)) {
+      return sendJson(res, 409, { error: "A business login already exists for that email." });
+    }
+
+    const createdAt = nowIso();
+    const slug = uniqueSlug(store, name);
+    const locationGuess = geocodeLocation(`${city} ${state}`) || geocodeLocation(city) || LOCATION_INDEX.nashville;
+    const business = {
+      id: slug,
+      slug,
+      name,
+      location: {
+        address: cleanString(body.address),
+        city: city || locationGuess.label.split(",")[0],
+        state: state || cleanString(locationGuess.label.split(",")[1] || "TN"),
+        postalCode: cleanString(body.postalCode),
+        lat: Number(body.lat || locationGuess.lat),
+        lng: Number(body.lng || locationGuess.lng)
+      },
+      phone,
+      email,
+      website: cleanString(body.website),
+      socials: {
+        instagram: cleanString(body.instagram),
+        facebook: cleanString(body.facebook),
+        tiktok: cleanString(body.tiktok)
+      },
+      bio: cleanString(body.bio, "New Holler & Son studio profile. Add a bio, gallery, artists, and booking details after subscribing."),
+      specialties: cleanList(body.specialties || body.styles),
+      artists: cleanList(body.artists || ownerName),
+      hours: cleanString(body.hours, "By appointment"),
+      minDeposit: Number(body.minDeposit || 0),
+      featured: false,
+      art: [],
+      createdAt,
+      updatedAt: createdAt
+    };
+    const employee = {
+      id: randomId("emp"),
+      businessId: business.id,
+      name: ownerName,
+      email,
+      passwordHash: hashPassword(password),
+      role: "Owner",
+      createdAt
+    };
+    const subscription = {
+      id: randomId("sub"),
+      businessId: business.id,
+      stripeCustomerId: "",
+      stripeSubscriptionId: `pending_${business.id}`,
+      stripePriceId: "",
+      status: "incomplete",
+      currentPeriodEnd: "",
+      cancelAtPeriodEnd: false,
+      lastEventId: "signup",
+      createdAt,
+      updatedAt: createdAt
+    };
+    store.businesses.push(business);
+    store.employees.push(employee);
+    store.subscriptions.push(subscription);
+    ensureEmailSettings(store, business);
+    const token = crypto.randomBytes(24).toString("base64url");
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 12).toISOString();
+    store.sessions.push({ token, employeeId: employee.id, createdAt, expiresAt });
+    await writeStore(store);
+    return sendJson(res, 201, {
+      ok: true,
+      token,
+      employee: { id: employee.id, name: employee.name, email: employee.email, role: employee.role },
+      business: publicBusiness(business),
+      access: accessForSubscription(subscription)
+    });
+  }
+
+  if (method === "POST" && (pathname === "/api/customer/signup" || pathname === "/api/customer/login")) {
+    const body = await readJsonBody(req);
+    const email = cleanString(body.email).toLowerCase();
+    const password = cleanString(body.password);
+    if (!email || !email.includes("@")) return sendJson(res, 400, { error: "A valid email is required." });
+    if (password.length < 8) return sendJson(res, 400, { error: "Password must be at least 8 characters." });
+
+    let account = store.customerAccounts.find((candidate) => candidate.email.toLowerCase() === email);
+    let customer = account ? getCustomerByAccount(store, account) : null;
+    if (pathname === "/api/customer/signup") {
+      if (account) return sendJson(res, 409, { error: "A customer account already exists for that email." });
+      const createdAt = nowIso();
+      customer =
+        store.customers.find((candidate) => candidate.email?.toLowerCase() === email) || {
+          id: randomId("cust"),
+          name: cleanString(body.name, "Tattoo collector"),
+          email,
+          phone: cleanString(body.phone),
+          preferredContact: "email",
+          createdAt,
+          updatedAt: createdAt
+        };
+      if (!store.customers.includes(customer)) store.customers.push(customer);
+      Object.assign(customer, {
+        name: cleanString(body.name, customer.name),
+        email,
+        phone: cleanString(body.phone, customer.phone),
+        preferredContact: "email",
+        updatedAt: createdAt
+      });
+      account = {
+        id: randomId("custacct"),
+        customerId: customer.id,
+        email,
+        passwordHash: hashPassword(password),
+        createdAt,
+        updatedAt: createdAt
+      };
+      store.customerAccounts.push(account);
+      addCustomerMessage(store, customer.id, {
+        subject: "Welcome to Holler & Son",
+        preview: "Your customer dashboard is ready. Search studios, save favorites, and keep booking messages in one place.",
+        body: "Your customer dashboard is ready. Search studios, save favorites, and keep booking messages in one place.",
+        read: false,
+        createdAt
+      });
+    } else {
+      if (!account || account.passwordHash !== hashPassword(password) || !customer) {
+        return sendJson(res, 401, { error: "Invalid customer login." });
+      }
+    }
+
+    const token = crypto.randomBytes(24).toString("base64url");
+    const createdAt = nowIso();
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 14).toISOString();
+    store.customerSessions = store.customerSessions.filter(
+      (session) => new Date(session.expiresAt).getTime() > Date.now()
+    );
+    store.customerSessions.push({ token, accountId: account.id, createdAt, expiresAt });
+    await writeStore(store);
+    return sendJson(res, 200, { token, dashboard: customerDashboard(store, customer) });
+  }
+
   if (method === "POST" && pathname === "/api/employee/login") {
     const body = await readJsonBody(req);
     const email = cleanString(body.email).toLowerCase();
@@ -1079,6 +1327,13 @@ async function handleApi(req, res, url) {
 
   if (method === "POST" && pathname === "/api/inquiries") {
     const body = await readJsonBody(req);
+    const customerAuth = getCustomerAuthContext(store, req);
+    if (customerAuth) {
+      body.customerName ||= customerAuth.customer.name;
+      body.email ||= customerAuth.customer.email;
+      body.phone ||= customerAuth.customer.phone;
+      body.saveCustomer = true;
+    }
     const business = findBusiness(store, cleanString(body.businessId || body.parlorId));
     const validationError = validateInquiry(body, business);
     if (validationError) return sendJson(res, 400, { error: validationError });
@@ -1086,7 +1341,7 @@ async function handleApi(req, res, url) {
     const start = new Date(`${body.preferredDate}T${body.preferredTime}:00`).toISOString();
     const inquiry = {
       id: randomId("inq"),
-      customerId: null,
+      customerId: customerAuth?.customer.id || null,
       businessId: business.id,
       customerName: cleanString(body.customerName),
       contactMethod: body.contactMethod === "phone" ? "phone" : "email",
@@ -1101,7 +1356,16 @@ async function handleApi(req, res, url) {
       status: "new",
       createdAt: nowIso()
     };
-    if (body.saveCustomer) {
+    if (customerAuth) {
+      Object.assign(customerAuth.customer, {
+        name: inquiry.customerName,
+        email: inquiry.email,
+        phone: inquiry.phone,
+        preferredContact: inquiry.contactMethod,
+        updatedAt: inquiry.createdAt
+      });
+      inquiry.customerId = customerAuth.customer.id;
+    } else if (body.saveCustomer) {
       const existingCustomer = store.customers.find((customer) => {
         const sameEmail = inquiry.email && customer.email?.toLowerCase() === inquiry.email.toLowerCase();
         const samePhone = inquiry.phone && customer.phone === inquiry.phone;
@@ -1162,6 +1426,19 @@ async function handleApi(req, res, url) {
     store.inquiries.push(inquiry);
     store.appointments.push(appointment);
     store.inbox.push(inboxMessage);
+    if (inquiry.customerId) {
+      addCustomerMessage(store, inquiry.customerId, {
+        businessId: business.id,
+        direction: "outgoing",
+        status: "sent",
+        fromName: "You",
+        subject: `Appointment request sent to ${business.name}`,
+        preview: `${inquiry.service} request for ${new Date(appointment.start).toLocaleString()}.`,
+        body: `Your ${inquiry.service} request was sent to ${business.name}. The studio can contact you by ${inquiry.contactMethod}.`,
+        read: false,
+        createdAt: inquiry.createdAt
+      });
+    }
     await writeStore(store);
 
     return sendJson(res, 201, {
@@ -1170,6 +1447,58 @@ async function handleApi(req, res, url) {
       appointment,
       emailDelivery: delivery
     });
+  }
+
+  const customerProtected =
+    pathname === "/api/customer/dashboard" ||
+    pathname === "/api/customer/favorites" ||
+    pathname.startsWith("/api/customer/favorites/") ||
+    pathname.startsWith("/api/customer/messages/");
+  const customerAuth = customerProtected ? getCustomerAuthContext(store, req) : null;
+  if (customerProtected && !customerAuth) return sendJson(res, 401, { error: "Customer login required." });
+
+  if (method === "GET" && pathname === "/api/customer/dashboard") {
+    return sendJson(res, 200, customerDashboard(store, customerAuth.customer));
+  }
+
+  if (method === "POST" && pathname === "/api/customer/favorites") {
+    const body = await readJsonBody(req);
+    const business = findBusiness(store, cleanString(body.businessId));
+    if (!business) return sendJson(res, 404, { error: "Studio not found." });
+    const exists = store.customerFavorites.some(
+      (favorite) => favorite.customerId === customerAuth.customer.id && favorite.businessId === business.id
+    );
+    if (!exists) {
+      store.customerFavorites.push({
+        customerId: customerAuth.customer.id,
+        businessId: business.id,
+        createdAt: nowIso()
+      });
+    }
+    await writeStore(store);
+    return sendJson(res, 200, customerDashboard(store, customerAuth.customer));
+  }
+
+  const customerFavoriteDelete = pathname.match(/^\/api\/customer\/favorites\/([^/]+)$/);
+  if (method === "DELETE" && customerFavoriteDelete) {
+    const businessId = decodeURIComponent(customerFavoriteDelete[1]);
+    store.customerFavorites = store.customerFavorites.filter(
+      (favorite) => !(favorite.customerId === customerAuth.customer.id && favorite.businessId === businessId)
+    );
+    await writeStore(store);
+    return sendJson(res, 200, customerDashboard(store, customerAuth.customer));
+  }
+
+  const customerMessagePatch = pathname.match(/^\/api\/customer\/messages\/([^/]+)$/);
+  if (method === "PATCH" && customerMessagePatch) {
+    const body = await readJsonBody(req);
+    const message = store.customerMessages.find(
+      (candidate) => candidate.id === decodeURIComponent(customerMessagePatch[1]) && candidate.customerId === customerAuth.customer.id
+    );
+    if (!message) return sendJson(res, 404, { error: "Message not found." });
+    message.read = Boolean(body.read);
+    await writeStore(store);
+    return sendJson(res, 200, customerDashboard(store, customerAuth.customer));
   }
 
   const auth = getAuthContext(store, req);
