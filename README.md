@@ -199,6 +199,13 @@ The Stripe CLI secret is different from the Dashboard webhook secret.
 - R2 stores uploaded tattoo art images per business account.
 - Local preview stores data in `data/store.json`.
 
+## Brand assets
+
+Generated brand assets live in `public/assets`:
+
+- `holler-son-logo.png` - square business logo for the website, profile images, and app icons.
+- `holler-son-social-banner.png` - wide social media banner/header image.
+
 ## Subscription access rules
 
 Employee login is always allowed so a business can reach the Subscription tab.

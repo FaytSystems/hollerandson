@@ -11,6 +11,8 @@ for (const file of [
   "public/styles.css",
   "public/app.js",
   "public/assets/tattoo-studio-hero.png",
+  "public/assets/holler-son-logo.png",
+  "public/assets/holler-son-social-banner.png",
   "cloudflare/worker.js",
   "cloudflare/schema.sql",
   "wrangler.toml"
