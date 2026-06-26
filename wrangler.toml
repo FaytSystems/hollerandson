@@ -1,0 +1,20 @@
+name = "hollerandson"
+main = "cloudflare/worker.js"
+compatibility_date = "2026-06-26"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hollerandson"
+database_id = "replace-with-your-d1-database-id"
+
+[[r2_buckets]]
+binding = "ART_BUCKET"
+bucket_name = "hollerandson-art"
+
+[vars]
+EMAIL_FROM = "Holler & Son <onboarding@resend.dev>"
+

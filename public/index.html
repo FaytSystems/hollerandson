@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Holler & Son is a tattoo parlor appointment marketplace with customer search, studio pages, portfolio uploads, employee inbox, and calendar tools."
+    >
+    <title>Holler & Son Tattoo Appointments</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script async src="https://js.stripe.com/v3/buy-button.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#customer-portal" aria-label="Holler & Son home">
+        <span class="brand-mark">HS</span>
+        <span>
+          <strong>Holler & Son</strong>
+          <small>Tattoo bookings</small>
+        </span>
+      </a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="#customer-portal">Find a parlor</a>
+        <a href="#employee-area">Employee login</a>
+        <a href="#business-tools">Business tools</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" id="customer-portal" aria-label="Customer portal">
+        <div class="hero-backdrop" aria-hidden="true"></div>
+        <div class="hero-content">
+          <p class="eyebrow">Customer portal</p>
+          <h1>Find the right tattoo studio and request a consult.</h1>
+          <form class="search-panel" id="search-form">
+            <label>
+              <span>Parlor name or tattoo style</span>
+              <input id="search-query" name="query" type="search" placeholder="Holler, blackwork, traditional">
+            </label>
+            <label>
+              <span>Location</span>
+              <input id="search-location" name="location" type="search" placeholder="Nashville, Austin, Brooklyn">
+            </label>
+            <label>
+              <span>Miles</span>
+              <input id="search-radius" name="radius" type="number" min="1" max="500" value="50">
+            </label>
+            <label>
+              <span>Style</span>
+              <select id="search-style" name="style">
+                <option value="">Any style</option>
+                <option value="blackwork">Blackwork</option>
+                <option value="traditional">Traditional</option>
+                <option value="fine-line">Fine-line</option>
+                <option value="cover-ups">Cover-ups</option>
+                <option value="realism">Realism</option>
+                <option value="geometric">Geometric</option>
+                <option value="color">Color</option>
+              </select>
+            </label>
+            <button class="primary-action" type="submit">Search parlors</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="portal-grid" aria-label="Search results and booking queue">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Nearby studios</p>
+            <h2>Available tattoo parlors</h2>
+          </div>
+          <p id="result-summary">Loading studios...</p>
+        </div>
+        <div class="results-layout">
+          <div class="results-list" id="parlor-results" aria-live="polite"></div>
+          <aside class="customer-side" aria-label="Customer saved information">
+            <div class="mini-panel">
+              <div class="panel-title">
+                <span>Saved customer info</span>
+                <button class="ghost-action" id="clear-customer">Clear</button>
+              </div>
+              <form id="customer-pref-form">
+                <label>
+                  <span>Name</span>
+                  <input id="pref-name" autocomplete="name">
+                </label>
+                <label>
+                  <span>Email</span>
+                  <input id="pref-email" type="email" autocomplete="email">
+                </label>
+                <label>
+                  <span>Phone</span>
+                  <input id="pref-phone" type="tel" autocomplete="tel">
+                </label>
+                <div class="segmented" role="radiogroup" aria-label="Preferred contact method">
+                  <label><input type="radio" name="pref-contact" value="email" checked><span>Email</span></label>
+                  <label><input type="radio" name="pref-contact" value="phone"><span>Phone</span></label>
+                </div>
+                <button class="secondary-action" type="submit">Save info</button>
+              </form>
+            </div>
+            <div class="mini-panel">
+              <div class="panel-title">
+                <span>Shortlist</span>
+                <span id="favorite-count">0</span>
+              </div>
+              <div id="favorite-list" class="favorite-list"></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="business-strip" id="business-tools" aria-label="Tattoo business tools">
+        <div>
+          <p class="eyebrow">Business portal</p>
+          <h2>Publish a studio page, upload art, and manage appointment requests.</h2>
+        </div>
+        <a class="primary-action" href="#employee-area">Open employee area</a>
+      </section>
+
+      <section class="employee-shell" id="employee-area" aria-label="Employee login and dashboard">
+        <div class="login-panel" id="login-panel">
+          <div>
+            <p class="eyebrow">Employee login</p>
+            <h2>Studio command center</h2>
+            <p class="muted">Demo login: studio@hollerandson.ink / inkmaster2026</p>
+          </div>
+          <form id="login-form" class="login-form">
+            <label>
+              <span>Email</span>
+              <input id="login-email" type="email" value="studio@hollerandson.ink" autocomplete="username">
+            </label>
+            <label>
+              <span>Password</span>
+              <input id="login-password" type="password" value="inkmaster2026" autocomplete="current-password">
+            </label>
+            <button class="primary-action" type="submit">Login</button>
+          </form>
+        </div>
+
+        <div class="dashboard" id="dashboard" hidden>
+          <div class="dashboard-top">
+            <div>
+              <p class="eyebrow">Employee dashboard</p>
+              <h2 id="dashboard-title">Studio dashboard</h2>
+            </div>
+            <div class="dashboard-actions">
+              <span id="employee-badge"></span>
+              <button class="ghost-action" id="logout-button">Logout</button>
+            </div>
+          </div>
+
+          <div class="dashboard-tabs" role="tablist" aria-label="Dashboard sections">
+            <button class="tab-button is-active" data-tab="calendar" type="button">Calendar</button>
+            <button class="tab-button" data-tab="inbox" type="button">Inbox</button>
+            <button class="tab-button" data-tab="profile" type="button">Studio page</button>
+            <button class="tab-button" data-tab="art" type="button">Art wall</button>
+            <button class="tab-button" data-tab="customers" type="button">Customers</button>
+            <button class="tab-button" data-tab="subscription" type="button">Subscription</button>
+          </div>
+
+          <section class="tab-panel is-active" id="tab-calendar">
+            <div class="split-panel">
+              <div>
+                <div class="section-head tight">
+                  <div>
+                    <p class="eyebrow">Calendar</p>
+                    <h3>Appointment tracker</h3>
+                  </div>
+                  <button class="secondary-action" id="refresh-dashboard" type="button">Refresh</button>
+                </div>
+                <div class="calendar-list" id="calendar-list"></div>
+              </div>
+              <form id="employee-appointment-form" class="mini-panel">
+                <div class="panel-title"><span>Add appointment</span></div>
+                <label><span>Customer</span><input name="customerName" required></label>
+                <label><span>Contact</span><input name="contact" required></label>
+                <label><span>Service</span><input name="service" required placeholder="Consult, linework, sleeve planning"></label>
+                <label><span>Artist</span><input name="artist" placeholder="Any available artist"></label>
+                <div class="form-row">
+                  <label><span>Date</span><input name="date" type="date" required></label>
+                  <label><span>Time</span><input name="time" type="time" required></label>
+                </div>
+                <div class="form-row">
+                  <label><span>Minutes</span><input name="durationMinutes" type="number" value="60" min="15"></label>
+                  <label><span>Status</span><select name="status"><option>confirmed</option><option>pending</option></select></label>
+                </div>
+                <label><span>Notes</span><textarea name="notes" rows="3"></textarea></label>
+                <button class="primary-action" type="submit">Add to calendar</button>
+              </form>
+            </div>
+          </section>
+
+          <section class="tab-panel" id="tab-inbox">
+            <div class="inbox-grid">
+              <div>
+                <div class="section-head tight">
+                  <div>
+                    <p class="eyebrow">Inbox</p>
+                    <h3>New inquiries</h3>
+                  </div>
+                </div>
+                <div id="inquiry-list" class="inquiry-list"></div>
+              </div>
+              <div>
+                <div class="section-head tight">
+                  <div>
+                    <p class="eyebrow">Notifications</p>
+                    <h3>Email delivery log</h3>
+                  </div>
+                </div>
+                <div id="message-list" class="message-list"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="tab-panel" id="tab-profile">
+            <form id="profile-form" class="profile-form">
+              <div class="section-head tight">
+                <div>
+                  <p class="eyebrow">Studio page</p>
+                  <h3>Public business profile</h3>
+                </div>
+                <button class="primary-action" type="submit">Save page</button>
+              </div>
+              <div class="profile-grid">
+                <label><span>Business name</span><input name="name" required></label>
+                <label><span>Phone</span><input name="phone" required></label>
+                <label><span>Email</span><input name="email" type="email" required></label>
+                <label><span>Website</span><input name="website" type="url"></label>
+                <label><span>Address</span><input name="address" required></label>
+                <label><span>City</span><input name="city" required></label>
+                <label><span>State</span><input name="state" maxlength="2" required></label>
+                <label><span>Postal code</span><input name="postalCode" required></label>
+                <label><span>Latitude</span><input name="lat" type="number" step="0.0001" required></label>
+                <label><span>Longitude</span><input name="lng" type="number" step="0.0001" required></label>
+                <label><span>Hours</span><input name="hours"></label>
+                <label><span>Minimum deposit</span><input name="minDeposit" type="number" min="0"></label>
+                <label><span>Instagram</span><input name="instagram" type="url"></label>
+                <label><span>Facebook</span><input name="facebook" type="url"></label>
+                <label><span>TikTok</span><input name="tiktok" type="url"></label>
+                <label><span>Specialties</span><input name="specialties" placeholder="blackwork, traditional"></label>
+                <label><span>Artists</span><input name="artists" placeholder="Artist names, separated by commas"></label>
+                <label class="wide"><span>Bio</span><textarea name="bio" rows="6"></textarea></label>
+              </div>
+            </form>
+          </section>
+
+          <section class="tab-panel" id="tab-art">
+            <div class="split-panel">
+              <form id="art-form" class="mini-panel">
+                <div class="panel-title"><span>Upload tattoo art</span></div>
+                <label><span>Title</span><input name="title" required></label>
+                <label><span>Style</span><input name="style" placeholder="blackwork, realism"></label>
+                <label><span>Caption</span><textarea name="caption" rows="3"></textarea></label>
+                <label><span>Image</span><input name="image" type="file" accept="image/*" required></label>
+                <button class="primary-action" type="submit">Add art</button>
+              </form>
+              <div>
+                <div class="section-head tight">
+                  <div>
+                    <p class="eyebrow">Public art wall</p>
+                    <h3>Portfolio gallery</h3>
+                  </div>
+                </div>
+                <div id="dashboard-art" class="art-wall"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="tab-panel" id="tab-customers">
+            <div class="section-head tight">
+              <div>
+                <p class="eyebrow">Customer records</p>
+                <h3>Saved customer information</h3>
+              </div>
+            </div>
+            <div class="table-shell">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+                    <th>Preferred contact</th>
+                    <th>Updated</th>
+                  </tr>
+                </thead>
+                <tbody id="customer-table"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="tab-panel" id="tab-subscription">
+            <div class="subscription-panel">
+              <div>
+                <p class="eyebrow">Monthly studio plan</p>
+                <h3>Keep this parlor page live</h3>
+                <p>
+                  The Stripe buy button below is wired with your monthly-fee button ID. It can sit inside
+                  onboarding, renewal, or account settings.
+                </p>
+              </div>
+              <div class="stripe-box">
+                <stripe-buy-button
+                  buy-button-id="buy_btn_1TmRvsGJtywdCBcEmAmvEuWF"
+                  publishable-key="pk_live_51TdF41GJtywdCBcEVXcvUM8SB5O6Y34OCA0nrPqvlfa5RQfmSj5TroPhVQq8heMzbJZuEhxoOwVXC7sYrpSBybdk002vxsC9AC"
+                >
+                </stripe-buy-button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="profile-dialog" class="app-dialog">
+      <button class="dialog-close" data-close-dialog="profile-dialog" aria-label="Close profile">X</button>
+      <div id="profile-content"></div>
+    </dialog>
+
+    <dialog id="booking-dialog" class="app-dialog booking-dialog">
+      <button class="dialog-close" data-close-dialog="booking-dialog" aria-label="Close booking">X</button>
+      <form id="booking-form" class="booking-form">
+        <input type="hidden" name="businessId">
+        <div>
+          <p class="eyebrow">Appointment request</p>
+          <h2 id="booking-title">Request a tattoo consult</h2>
+        </div>
+        <div class="form-row">
+          <label><span>Name</span><input name="customerName" required autocomplete="name"></label>
+          <label><span>Preferred contact</span><select name="contactMethod"><option value="email">Email</option><option value="phone">Phone</option></select></label>
+        </div>
+        <div class="form-row">
+          <label><span>Email</span><input name="email" type="email" autocomplete="email"></label>
+          <label><span>Phone</span><input name="phone" type="tel" autocomplete="tel"></label>
+        </div>
+        <div class="form-row">
+          <label><span>Preferred date</span><input name="preferredDate" type="date" required></label>
+          <label><span>Preferred time</span><input name="preferredTime" type="time" required></label>
+        </div>
+        <div class="form-row">
+          <label><span>Artist</span><select name="artist"></select></label>
+          <label><span>Budget range</span><input name="budget" placeholder="$250-$500"></label>
+        </div>
+        <label><span>Tattoo idea</span><input name="service" required placeholder="Fine-line rose, sleeve consult, cover-up"></label>
+        <label><span>Placement</span><input name="placement" placeholder="Forearm, shoulder, back"></label>
+        <label><span>Notes</span><textarea name="message" rows="4" placeholder="Size, references, color preferences, availability"></textarea></label>
+        <label class="check-row">
+          <input name="saveCustomer" type="checkbox" checked>
+          <span>Save my contact information for this studio.</span>
+        </label>
+        <label class="check-row">
+          <input name="consent" type="checkbox" required>
+          <span>I agree to be contacted by phone or email about this appointment request.</span>
+        </label>
+        <button class="primary-action" type="submit">Send request</button>
+        <p class="form-note" id="booking-note"></p>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
+

@@ -1,0 +1,21 @@
+{
+  "name": "hollerandson",
+  "version": "1.0.0",
+  "description": "A polished tattoo parlor appointment marketplace with customer search, business profiles, employee dashboard, calendar, art uploads, and inquiry notifications.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node scripts/check.js",
+    "build": "node scripts/check.js"
+  },
+  "keywords": [
+    "tattoo",
+    "appointments",
+    "marketplace",
+    "portfolio",
+    "calendar"
+  ],
+  "author": "",
+  "license": "MIT"
+}
+

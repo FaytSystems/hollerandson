@@ -1,0 +1,585 @@
+const LOCATION_INDEX = {
+  "nashville": { label: "Nashville, TN", lat: 36.1627, lng: -86.7816 },
+  "nashville tn": { label: "Nashville, TN", lat: 36.1627, lng: -86.7816 },
+  "37203": { label: "Nashville, TN 37203", lat: 36.1539, lng: -86.7895 },
+  "east nashville": { label: "East Nashville, TN", lat: 36.1866, lng: -86.7409 },
+  "austin": { label: "Austin, TX", lat: 30.2672, lng: -97.7431 },
+  "austin tx": { label: "Austin, TX", lat: 30.2672, lng: -97.7431 },
+  "brooklyn": { label: "Brooklyn, NY", lat: 40.6782, lng: -73.9442 },
+  "brooklyn ny": { label: "Brooklyn, NY", lat: 40.6782, lng: -73.9442 },
+  "chicago": { label: "Chicago, IL", lat: 41.8781, lng: -87.6298 },
+  "chicago il": { label: "Chicago, IL", lat: 41.8781, lng: -87.6298 },
+  "denver": { label: "Denver, CO", lat: 39.7392, lng: -104.9903 },
+  "denver co": { label: "Denver, CO", lat: 39.7392, lng: -104.9903 },
+  "los angeles": { label: "Los Angeles, CA", lat: 34.0522, lng: -118.2437 },
+  "los angeles ca": { label: "Los Angeles, CA", lat: 34.0522, lng: -118.2437 },
+  "miami": { label: "Miami, FL", lat: 25.7617, lng: -80.1918 },
+  "miami fl": { label: "Miami, FL", lat: 25.7617, lng: -80.1918 },
+  "portland": { label: "Portland, OR", lat: 45.5152, lng: -122.6784 },
+  "portland or": { label: "Portland, OR", lat: 45.5152, lng: -122.6784 },
+  "seattle": { label: "Seattle, WA", lat: 47.6062, lng: -122.3321 },
+  "seattle wa": { label: "Seattle, WA", lat: 47.6062, lng: -122.3321 }
+};
+
+function json(payload, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store"
+    }
+  });
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function randomId(prefix) {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return `${prefix}_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function clean(value, fallback = "") {
+  return String(value ?? fallback).trim();
+}
+
+function list(value) {
+  if (Array.isArray(value)) return value.map((item) => clean(item)).filter(Boolean);
+  return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function parseJson(value, fallback) {
+  try {
+    return JSON.parse(value || "");
+  } catch {
+    return fallback;
+  }
+}
+
+function normalize(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function geocode(value) {
+  const key = normalize(value);
+  return key ? LOCATION_INDEX[key] || null : null;
+}
+
+function milesBetween(a, b) {
+  const toRad = (degrees) => (degrees * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * 3958.8 * Math.asin(Math.sqrt(h));
+}
+
+async function sha256(value) {
+  const bytes = new TextEncoder().encode(String(value));
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function publicBusiness(row, art = [], distanceMiles = null) {
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    location: {
+      address: row.address,
+      city: row.city,
+      state: row.state,
+      postalCode: row.postal_code,
+      lat: row.lat,
+      lng: row.lng
+    },
+    phone: row.phone,
+    email: row.email,
+    website: row.website || "",
+    socials: parseJson(row.socials_json, {}),
+    bio: row.bio || "",
+    hours: row.hours || "",
+    minDeposit: row.min_deposit || 0,
+    specialties: parseJson(row.specialties_json, []),
+    artists: parseJson(row.artists_json, []),
+    featured: Boolean(row.featured),
+    art,
+    distanceMiles: typeof distanceMiles === "number" ? Number(distanceMiles.toFixed(1)) : null,
+    updatedAt: row.updated_at
+  };
+}
+
+async function getArt(env, businessId) {
+  const { results } = await env.DB.prepare(
+    "SELECT id, title, style, caption, image_url AS image, created_at AS createdAt FROM art WHERE business_id = ? ORDER BY created_at DESC LIMIT 80"
+  ).bind(businessId).all();
+  return results || [];
+}
+
+async function getBusiness(env, idOrSlug) {
+  return env.DB.prepare("SELECT * FROM businesses WHERE id = ? OR slug = ? LIMIT 1").bind(idOrSlug, idOrSlug).first();
+}
+
+async function sendInquiryEmail(env, business, inquiry, appointment) {
+  const to = env.BUSINESS_NOTIFICATION_EMAIL || business.email;
+  if (!env.RESEND_API_KEY) {
+    return {
+      ok: false,
+      mode: "local-inbox",
+      to,
+      detail: "RESEND_API_KEY is not configured; notification was saved to the employee inbox."
+    };
+  }
+
+  const html = `
+    <h1>New tattoo inquiry</h1>
+    <p><strong>Studio:</strong> ${business.name}</p>
+    <p><strong>Customer:</strong> ${inquiry.customerName}</p>
+    <p><strong>Preferred contact:</strong> ${inquiry.contactMethod}</p>
+    <p><strong>Email:</strong> ${inquiry.email || "Not provided"}</p>
+    <p><strong>Phone:</strong> ${inquiry.phone || "Not provided"}</p>
+    <p><strong>Requested time:</strong> ${appointment.start}</p>
+    <p><strong>Service:</strong> ${inquiry.service}</p>
+    <p><strong>Artist:</strong> ${inquiry.artist}</p>
+    <p><strong>Message:</strong><br>${inquiry.message || ""}</p>
+  `;
+
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        from: env.EMAIL_FROM || "Holler & Son <onboarding@resend.dev>",
+        to: [to],
+        subject: `New tattoo inquiry from ${inquiry.customerName}`,
+        html
+      })
+    });
+    const providerResponse = await response.json().catch(() => ({}));
+    return { ok: response.ok, mode: "resend", to, providerStatus: response.status, providerResponse };
+  } catch (error) {
+    return { ok: false, mode: "resend", to, detail: error.message };
+  }
+}
+
+function bearerToken(request) {
+  const auth = request.headers.get("Authorization") || "";
+  const match = auth.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1] : "";
+}
+
+async function authContext(env, request) {
+  const token = bearerToken(request);
+  if (!token) return null;
+  const session = await env.DB.prepare(
+    "SELECT s.token, s.expires_at, e.id AS employee_id, e.business_id, e.name AS employee_name, e.email AS employee_email, e.role FROM sessions s JOIN employees e ON e.id = s.employee_id WHERE s.token = ? LIMIT 1"
+  ).bind(token).first();
+  if (!session || new Date(session.expires_at).getTime() < Date.now()) return null;
+  const business = await getBusiness(env, session.business_id);
+  if (!business) return null;
+  return {
+    business,
+    employee: {
+      id: session.employee_id,
+      name: session.employee_name,
+      email: session.employee_email,
+      role: session.role
+    }
+  };
+}
+
+async function searchParlors(env, url) {
+  const query = normalize(url.searchParams.get("query"));
+  const style = normalize(url.searchParams.get("style"));
+  const locationTerm = clean(url.searchParams.get("location"));
+  const radius = Math.min(Math.max(Number(url.searchParams.get("radius") || 50), 1), 500);
+  const origin = geocode(locationTerm);
+  const fallbackLocation = normalize(locationTerm);
+  const { results } = await env.DB.prepare("SELECT * FROM businesses ORDER BY featured DESC, name ASC").all();
+  const rows = results || [];
+  const matches = [];
+
+  for (const row of rows) {
+    const haystack = normalize([
+      row.name,
+      row.address,
+      row.city,
+      row.state,
+      row.postal_code,
+      row.bio,
+      row.specialties_json,
+      row.artists_json
+    ].join(" "));
+    const distance = origin ? milesBetween(origin, { lat: row.lat, lng: row.lng }) : null;
+    const queryMatches = query ? haystack.includes(query) : true;
+    const styleMatches = style ? haystack.includes(style) : true;
+    const locationMatches = origin ? distance <= radius : fallbackLocation ? haystack.includes(fallbackLocation) : true;
+    if (queryMatches && styleMatches && locationMatches) {
+      matches.push({ row, distance, art: await getArt(env, row.id) });
+    }
+  }
+
+  matches.sort((a, b) => {
+    if (a.distance !== null && b.distance !== null) return a.distance - b.distance;
+    if (Boolean(a.row.featured) !== Boolean(b.row.featured)) return a.row.featured ? -1 : 1;
+    return a.row.name.localeCompare(b.row.name);
+  });
+
+  return json({
+    locationKnown: Boolean(origin),
+    location: origin ? origin.label : null,
+    radius,
+    parlors: matches.map(({ row, art, distance }) => publicBusiness(row, art, distance))
+  });
+}
+
+async function createInquiry(env, body) {
+  const business = await getBusiness(env, clean(body.businessId || body.parlorId));
+  if (!business) return json({ error: "Tattoo parlor was not found." }, 404);
+
+  const contactMethod = body.contactMethod === "phone" ? "phone" : "email";
+  const customerName = clean(body.customerName);
+  const email = clean(body.email);
+  const phone = clean(body.phone);
+  const service = clean(body.service);
+  if (!customerName) return json({ error: "Customer name is required." }, 400);
+  if (contactMethod === "email" && !email) return json({ error: "Email is required for email contact." }, 400);
+  if (contactMethod === "phone" && !phone) return json({ error: "Phone number is required for phone contact." }, 400);
+  if (!service) return json({ error: "Tattoo idea or service is required." }, 400);
+  if (!body.preferredDate || !body.preferredTime) return json({ error: "Preferred date and time are required." }, 400);
+
+  const createdAt = nowIso();
+  let customerId = null;
+  if (body.saveCustomer) {
+    const existing = await env.DB.prepare(
+      "SELECT * FROM customers WHERE (email <> '' AND lower(email) = lower(?)) OR (phone <> '' AND phone = ?) LIMIT 1"
+    ).bind(email, phone).first();
+    if (existing) {
+      customerId = existing.id;
+      await env.DB.prepare(
+        "UPDATE customers SET name = ?, email = ?, phone = ?, preferred_contact = ?, updated_at = ? WHERE id = ?"
+      ).bind(customerName, email, phone, contactMethod, createdAt, customerId).run();
+    } else {
+      customerId = randomId("cust");
+      await env.DB.prepare(
+        "INSERT INTO customers (id, name, email, phone, preferred_contact, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).bind(customerId, customerName, email, phone, contactMethod, createdAt, createdAt).run();
+    }
+  }
+
+  const inquiry = {
+    id: randomId("inq"),
+    customerId,
+    businessId: business.id,
+    customerName,
+    contactMethod,
+    email,
+    phone,
+    service,
+    artist: clean(body.artist || "Any available artist"),
+    placement: clean(body.placement),
+    budget: clean(body.budget),
+    message: clean(body.message),
+    consent: Boolean(body.consent),
+    status: "new",
+    createdAt
+  };
+  const appointment = {
+    id: randomId("appt"),
+    businessId: business.id,
+    inquiryId: inquiry.id,
+    customerName,
+    contact: contactMethod === "phone" ? phone : email,
+    contactMethod,
+    service,
+    artist: inquiry.artist,
+    start: new Date(`${body.preferredDate}T${body.preferredTime}:00`).toISOString(),
+    durationMinutes: Number(body.durationMinutes || 60),
+    status: "pending",
+    notes: inquiry.message,
+    source: "customer",
+    createdAt
+  };
+
+  await env.DB.prepare(
+    "INSERT INTO inquiries (id, customer_id, business_id, customer_name, contact_method, email, phone, service, artist, placement, budget, message, consent, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(
+    inquiry.id,
+    inquiry.customerId,
+    inquiry.businessId,
+    inquiry.customerName,
+    inquiry.contactMethod,
+    inquiry.email,
+    inquiry.phone,
+    inquiry.service,
+    inquiry.artist,
+    inquiry.placement,
+    inquiry.budget,
+    inquiry.message,
+    inquiry.consent ? 1 : 0,
+    inquiry.status,
+    inquiry.createdAt
+  ).run();
+
+  await env.DB.prepare(
+    "INSERT INTO appointments (id, business_id, inquiry_id, customer_name, contact, contact_method, service, artist, start, duration_minutes, status, notes, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(
+    appointment.id,
+    appointment.businessId,
+    appointment.inquiryId,
+    appointment.customerName,
+    appointment.contact,
+    appointment.contactMethod,
+    appointment.service,
+    appointment.artist,
+    appointment.start,
+    appointment.durationMinutes,
+    appointment.status,
+    appointment.notes,
+    appointment.source,
+    appointment.createdAt
+  ).run();
+
+  const delivery = await sendInquiryEmail(env, business, inquiry, appointment);
+  await env.DB.prepare(
+    "INSERT INTO inbox (id, business_id, inquiry_id, appointment_id, from_name, from_contact, subject, preview, delivery_json, read, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(
+    randomId("msg"),
+    business.id,
+    inquiry.id,
+    appointment.id,
+    customerName,
+    appointment.contact,
+    `New ${service} inquiry`,
+    inquiry.message || `${customerName} requested ${service}.`,
+    JSON.stringify(delivery),
+    0,
+    createdAt
+  ).run();
+
+  return json({ ok: true, inquiry, appointment, emailDelivery: delivery }, 201);
+}
+
+async function uploadArt(env, auth, body) {
+  const image = clean(body.image);
+  const match = image.match(/^data:(image\/(?:png|jpeg|webp|gif|svg\+xml));base64,(.+)$/);
+  if (!match) return json({ error: "Art upload must be a base64 image data URL." }, 400);
+  const mime = match[1];
+  const extension = mime.includes("jpeg") ? "jpg" : mime.split("/")[1].replace("svg+xml", "svg");
+  const id = randomId("art");
+  const key = `${auth.business.id}/${id}.${extension}`;
+  const binary = Uint8Array.from(atob(match[2]), (char) => char.charCodeAt(0));
+  await env.ART_BUCKET.put(key, binary, {
+    httpMetadata: { contentType: mime },
+    customMetadata: { businessId: auth.business.id, title: clean(body.title) }
+  });
+  const createdAt = nowIso();
+  const art = {
+    id,
+    title: clean(body.title, "Untitled flash"),
+    style: clean(body.style, "custom"),
+    caption: clean(body.caption),
+    image: `/api/art-images/${key}`,
+    createdAt
+  };
+  await env.DB.prepare(
+    "INSERT INTO art (id, business_id, title, style, caption, r2_key, image_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(id, auth.business.id, art.title, art.style, art.caption, key, art.image, createdAt).run();
+  await env.DB.prepare("UPDATE businesses SET updated_at = ? WHERE id = ?").bind(createdAt, auth.business.id).run();
+  return json({ ok: true, art }, 201);
+}
+
+async function api(request, env) {
+  const url = new URL(request.url);
+  const method = request.method;
+
+  if (method === "GET" && url.pathname === "/api/health") {
+    return json({ ok: true, service: "hollerandson-cloudflare", time: nowIso() });
+  }
+
+  if (method === "GET" && url.pathname === "/api/parlors") return searchParlors(env, url);
+
+  const parlorMatch = url.pathname.match(/^\/api\/parlors\/([^/]+)$/);
+  if (method === "GET" && parlorMatch) {
+    const business = await getBusiness(env, decodeURIComponent(parlorMatch[1]));
+    if (!business) return json({ error: "Tattoo parlor not found." }, 404);
+    return json({ business: publicBusiness(business, await getArt(env, business.id)) });
+  }
+
+  if (method === "GET" && url.pathname.startsWith("/api/art-images/")) {
+    const key = decodeURIComponent(url.pathname.slice("/api/art-images/".length));
+    const object = await env.ART_BUCKET.get(key);
+    if (!object) return new Response("Not found", { status: 404 });
+    return new Response(object.body, {
+      headers: {
+        "Content-Type": object.httpMetadata?.contentType || "application/octet-stream",
+        "Cache-Control": "public, max-age=31536000, immutable"
+      }
+    });
+  }
+
+  if (method === "POST" && url.pathname === "/api/employee/login") {
+    const body = await request.json();
+    const email = clean(body.email).toLowerCase();
+    const passwordHash = await sha256(body.password || "");
+    const employee = await env.DB.prepare(
+      "SELECT * FROM employees WHERE lower(email) = lower(?) AND password_hash = ? LIMIT 1"
+    ).bind(email, passwordHash).first();
+    if (!employee) return json({ error: "Invalid employee login." }, 401);
+    const token = randomId("session");
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 12).toISOString();
+    await env.DB.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(nowIso()).run();
+    await env.DB.prepare(
+      "INSERT INTO sessions (token, employee_id, created_at, expires_at) VALUES (?, ?, ?, ?)"
+    ).bind(token, employee.id, nowIso(), expiresAt).run();
+    const business = await getBusiness(env, employee.business_id);
+    return json({
+      token,
+      employee: { id: employee.id, name: employee.name, email: employee.email, role: employee.role },
+      business: publicBusiness(business, await getArt(env, business.id))
+    });
+  }
+
+  if (method === "POST" && url.pathname === "/api/inquiries") {
+    return createInquiry(env, await request.json());
+  }
+
+  const protectedRoute =
+    url.pathname.startsWith("/api/employee/") ||
+    url.pathname.startsWith("/api/business/") ||
+    url.pathname.startsWith("/api/inquiries/");
+  const auth = protectedRoute ? await authContext(env, request) : null;
+  if (protectedRoute && !auth) return json({ error: "Employee login required." }, 401);
+
+  if (method === "GET" && url.pathname === "/api/employee/dashboard") {
+    const businessId = auth.business.id;
+    const [art, inquiries, appointments, inbox, customers] = await Promise.all([
+      getArt(env, businessId),
+      env.DB.prepare("SELECT *, customer_name AS customerName, contact_method AS contactMethod, employee_notes AS employeeNotes, created_at AS createdAt FROM inquiries WHERE business_id = ? ORDER BY created_at DESC").bind(businessId).all(),
+      env.DB.prepare("SELECT *, customer_name AS customerName, contact_method AS contactMethod, duration_minutes AS durationMinutes, created_at AS createdAt FROM appointments WHERE business_id = ? ORDER BY start ASC").bind(businessId).all(),
+      env.DB.prepare("SELECT *, from_name AS fromName, from_contact AS fromContact, created_at AS createdAt FROM inbox WHERE business_id = ? ORDER BY created_at DESC").bind(businessId).all(),
+      env.DB.prepare("SELECT DISTINCT c.* FROM customers c JOIN inquiries i ON i.customer_id = c.id WHERE i.business_id = ? ORDER BY c.updated_at DESC").bind(businessId).all()
+    ]);
+    return json({
+      employee: auth.employee,
+      business: publicBusiness(auth.business, art),
+      inquiries: inquiries.results || [],
+      appointments: appointments.results || [],
+      inbox: (inbox.results || []).map((message) => ({ ...message, delivery: parseJson(message.delivery_json, {}) })),
+      customers: customers.results || []
+    });
+  }
+
+  if (method === "PATCH" && url.pathname === "/api/business/profile") {
+    const body = await request.json();
+    const socials = {
+      instagram: clean(body.instagram),
+      facebook: clean(body.facebook),
+      tiktok: clean(body.tiktok)
+    };
+    await env.DB.prepare(
+      `UPDATE businesses SET
+        name = ?, address = ?, city = ?, state = ?, postal_code = ?, lat = ?, lng = ?,
+        phone = ?, email = ?, website = ?, bio = ?, hours = ?, min_deposit = ?,
+        specialties_json = ?, artists_json = ?, socials_json = ?, updated_at = ?
+      WHERE id = ?`
+    ).bind(
+      clean(body.name, auth.business.name),
+      clean(body.address, auth.business.address),
+      clean(body.city, auth.business.city),
+      clean(body.state, auth.business.state),
+      clean(body.postalCode, auth.business.postal_code),
+      Number(body.lat || auth.business.lat),
+      Number(body.lng || auth.business.lng),
+      clean(body.phone, auth.business.phone),
+      clean(body.email, auth.business.email),
+      clean(body.website, auth.business.website),
+      clean(body.bio, auth.business.bio),
+      clean(body.hours, auth.business.hours),
+      Number(body.minDeposit || auth.business.min_deposit || 0),
+      JSON.stringify(list(body.specialties)),
+      JSON.stringify(list(body.artists)),
+      JSON.stringify(socials),
+      nowIso(),
+      auth.business.id
+    ).run();
+    const updated = await getBusiness(env, auth.business.id);
+    return json({ ok: true, business: publicBusiness(updated, await getArt(env, updated.id)) });
+  }
+
+  if (method === "POST" && url.pathname === "/api/business/art") return uploadArt(env, auth, await request.json());
+
+  const artDelete = url.pathname.match(/^\/api\/business\/art\/([^/]+)$/);
+  if (method === "DELETE" && artDelete) {
+    const art = await env.DB.prepare("SELECT * FROM art WHERE id = ? AND business_id = ? LIMIT 1").bind(decodeURIComponent(artDelete[1]), auth.business.id).first();
+    if (art?.r2_key) await env.ART_BUCKET.delete(art.r2_key);
+    await env.DB.prepare("DELETE FROM art WHERE id = ? AND business_id = ?").bind(decodeURIComponent(artDelete[1]), auth.business.id).run();
+    return json({ ok: true });
+  }
+
+  if (method === "POST" && url.pathname === "/api/business/appointments") {
+    const body = await request.json();
+    const appointment = {
+      id: randomId("appt"),
+      start: new Date(`${body.date}T${body.time}:00`).toISOString(),
+      createdAt: nowIso()
+    };
+    await env.DB.prepare(
+      "INSERT INTO appointments (id, business_id, inquiry_id, customer_name, contact, contact_method, service, artist, start, duration_minutes, status, notes, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(
+      appointment.id,
+      auth.business.id,
+      null,
+      clean(body.customerName),
+      clean(body.contact),
+      body.contactMethod === "phone" ? "phone" : "email",
+      clean(body.service),
+      clean(body.artist || "Any available artist"),
+      appointment.start,
+      Number(body.durationMinutes || 60),
+      clean(body.status || "confirmed"),
+      clean(body.notes),
+      "employee",
+      appointment.createdAt
+    ).run();
+    return json({ ok: true, appointment }, 201);
+  }
+
+  const inquiryPatch = url.pathname.match(/^\/api\/inquiries\/([^/]+)$/);
+  if (method === "PATCH" && inquiryPatch) {
+    const body = await request.json();
+    await env.DB.prepare("UPDATE inquiries SET status = ?, employee_notes = ? WHERE id = ? AND business_id = ?")
+      .bind(clean(body.status || "new"), clean(body.notes), decodeURIComponent(inquiryPatch[1]), auth.business.id)
+      .run();
+    return json({ ok: true });
+  }
+
+  return json({ error: "API route not found." }, 404);
+}
+
+async function assets(request, env) {
+  const response = await env.ASSETS.fetch(request);
+  if (response.status !== 404 || request.method !== "GET") return response;
+  const url = new URL(request.url);
+  url.pathname = "/index.html";
+  return env.ASSETS.fetch(new Request(url, request));
+}
+
+export default {
+  async fetch(request, env) {
+    try {
+      const url = new URL(request.url);
+      if (url.pathname.startsWith("/api/")) return api(request, env);
+      return assets(request, env);
+    } catch (error) {
+      return json({ error: error.message || "Server error." }, 500);
+    }
+  }
+};
+
