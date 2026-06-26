@@ -37,6 +37,8 @@ studio@hollerandson.ink
 inkmaster2026
 ```
 
+The demo business account is intentionally populated with sample customers, inbox inquiries, today/upcoming calendar appointments, and gallery artwork. Use **Preview business page** in the business dashboard to see the public studio page customers will see.
+
 Customer accounts can be created from the landing page. New customer favorites and inbox messages are saved through D1 in production and through `data/store.json` locally.
 
 Run checks:

@@ -120,6 +120,38 @@ function createSeedStore() {
       caption: "Fine-line symmetry for delicate placement work.",
       image: svgData("MOTH", ["#12100e", "#2d2119", "#b85c38", "#f1e8d8"], "M450 220 C360 120, 220 176, 214 332 C320 330, 384 394, 450 476 C516 394, 580 330, 686 332 C680 176, 540 120, 450 220"),
       createdAt
+    },
+    {
+      id: "art_demo_serpent",
+      title: "Serpent Peony",
+      style: "blackwork",
+      caption: "Blackwork serpent and peony flash for shoulder or thigh placement.",
+      image: "/assets/demo-art-serpent.svg",
+      createdAt
+    },
+    {
+      id: "art_demo_dagger",
+      title: "Dagger Rose",
+      style: "traditional",
+      caption: "Traditional dagger and rose design with warm gold shading.",
+      image: "/assets/demo-art-dagger.svg",
+      createdAt
+    },
+    {
+      id: "art_demo_lunar_moth",
+      title: "Lunar Moth",
+      style: "fine-line",
+      caption: "Fine-line moth with lunar details for sternum, back, or forearm.",
+      image: "/assets/demo-art-moth.svg",
+      createdAt
+    },
+    {
+      id: "art_demo_panther",
+      title: "Bold Panther",
+      style: "traditional",
+      caption: "Heavy black traditional panther flash with teal accents.",
+      image: "/assets/demo-art-panther.svg",
+      createdAt
     }
   ];
 
@@ -316,27 +348,167 @@ function createSeedStore() {
       }
     ],
     emailMessages: [],
-    customers: [],
-    inquiries: [],
+    customers: [
+      {
+        id: "cust_demo_avery",
+        name: "Avery Cole",
+        email: "avery@example.com",
+        phone: "(615) 555-0108",
+        preferredContact: "email",
+        createdAt,
+        updatedAt: createdAt
+      },
+      {
+        id: "cust_demo_morgan",
+        name: "Morgan Lee",
+        email: "morgan@example.com",
+        phone: "(615) 555-0133",
+        preferredContact: "phone",
+        createdAt,
+        updatedAt: createdAt
+      },
+      {
+        id: "cust_demo_jordan",
+        name: "Jordan Price",
+        email: "jordan@example.com",
+        phone: "(615) 555-0176",
+        preferredContact: "email",
+        createdAt,
+        updatedAt: createdAt
+      },
+      {
+        id: "cust_demo_riley",
+        name: "Riley Stone",
+        email: "riley@example.com",
+        phone: "(615) 555-0184",
+        preferredContact: "email",
+        createdAt,
+        updatedAt: createdAt
+      }
+    ],
+    inquiries: [
+      {
+        id: "inq_demo_avery",
+        customerId: "cust_demo_avery",
+        businessId: "holler-and-son",
+        customerName: "Avery Cole",
+        contactMethod: "email",
+        email: "avery@example.com",
+        phone: "(615) 555-0108",
+        service: "Blackwork peony shoulder piece",
+        artist: "Mara Holler",
+        placement: "Right shoulder",
+        budget: "$450-$700",
+        message: "Looking for a serpent and peony concept with strong blackwork.",
+        consent: true,
+        status: "confirmed",
+        createdAt
+      },
+      {
+        id: "inq_demo_morgan",
+        customerId: "cust_demo_morgan",
+        businessId: "holler-and-son",
+        customerName: "Morgan Lee",
+        contactMethod: "phone",
+        email: "morgan@example.com",
+        phone: "(615) 555-0133",
+        service: "Sleeve planning session",
+        artist: "Evan Son",
+        placement: "Left arm",
+        budget: "$1,500+",
+        message: "Wants to plan a traditional sleeve in three sessions.",
+        consent: true,
+        status: "pending",
+        createdAt
+      },
+      {
+        id: "inq_demo_jordan",
+        customerId: "cust_demo_jordan",
+        businessId: "holler-and-son",
+        customerName: "Jordan Price",
+        contactMethod: "email",
+        email: "jordan@example.com",
+        phone: "(615) 555-0176",
+        service: "Fine-line lunar moth",
+        artist: "June Vega",
+        placement: "Upper back",
+        budget: "$300-$500",
+        message: "Inspired by the lunar moth flash, open to custom changes.",
+        consent: true,
+        status: "new",
+        createdAt
+      },
+      {
+        id: "inq_demo_riley",
+        customerId: "cust_demo_riley",
+        businessId: "holler-and-son",
+        customerName: "Riley Stone",
+        contactMethod: "email",
+        email: "riley@example.com",
+        phone: "(615) 555-0184",
+        service: "Gallery walk-in consult",
+        artist: "June Vega",
+        placement: "Forearm",
+        budget: "$250-$400",
+        message: "Interested in the bold panther flash and wants to discuss sizing.",
+        consent: true,
+        status: "confirmed",
+        createdAt
+      }
+    ],
     appointments: [
+      {
+        id: "appt_demo_today_1",
+        businessId: "holler-and-son",
+        inquiryId: "inq_demo_avery",
+        customerName: "Avery Cole",
+        contact: "jordan@example.com",
+        contactMethod: "email",
+        service: "Blackwork peony shoulder piece",
+        artist: "Mara Holler",
+        start: addDays(0, 11, 0),
+        durationMinutes: 90,
+        status: "confirmed",
+        notes: "Review serpent-peony references and placement photos.",
+        source: "customer",
+        createdAt
+      },
+      {
+        id: "appt_demo_today_2",
+        businessId: "holler-and-son",
+        inquiryId: "inq_demo_riley",
+        customerName: "Riley Stone",
+        contact: "riley@example.com",
+        contactMethod: "email",
+        service: "Gallery walk-in consult",
+        artist: "June Vega",
+        start: addDays(0, 15, 30),
+        durationMinutes: 45,
+        status: "confirmed",
+        notes: "Interested in the bold panther flash.",
+        source: "employee",
+        createdAt
+      },
       {
         id: "appt_consult_1",
         businessId: "holler-and-son",
-        customerName: "Avery Cole",
+        inquiryId: "inq_demo_jordan",
+        customerName: "Jordan Price",
         contact: "avery@example.com",
         contactMethod: "email",
-        service: "Blackwork consultation",
-        artist: "Mara Holler",
+        service: "Fine-line lunar moth",
+        artist: "June Vega",
         start: addDays(2, 13, 0),
         durationMinutes: 45,
         status: "confirmed",
-        notes: "Bring botanical references.",
+        notes: "Fine-line concept review and sizing.",
         source: "seed",
         createdAt
       },
       {
         id: "appt_consult_2",
         businessId: "holler-and-son",
+        inquiryId: "inq_demo_morgan",
         customerName: "Morgan Lee",
         contact: "(615) 555-0133",
         contactMethod: "phone",
@@ -350,7 +522,60 @@ function createSeedStore() {
         createdAt
       }
     ],
-    inbox: []
+    inbox: [
+      {
+        id: "msg_demo_avery",
+        businessId: "holler-and-son",
+        inquiryId: "inq_demo_avery",
+        appointmentId: "appt_demo_today_1",
+        fromName: "Avery Cole",
+        fromContact: "avery@example.com",
+        subject: "New Blackwork peony shoulder piece inquiry",
+        preview: "Looking for a serpent and peony concept with strong blackwork.",
+        delivery: { ok: true, mode: "demo", to: "studio@hollerandson.ink" },
+        read: false,
+        createdAt
+      },
+      {
+        id: "msg_demo_morgan",
+        businessId: "holler-and-son",
+        inquiryId: "inq_demo_morgan",
+        appointmentId: "appt_consult_2",
+        fromName: "Morgan Lee",
+        fromContact: "(615) 555-0133",
+        subject: "Sleeve planning session request",
+        preview: "Wants to plan a traditional sleeve in three sessions.",
+        delivery: { ok: true, mode: "demo", to: "studio@hollerandson.ink" },
+        read: true,
+        createdAt
+      },
+      {
+        id: "msg_demo_jordan",
+        businessId: "holler-and-son",
+        inquiryId: "inq_demo_jordan",
+        appointmentId: "appt_consult_1",
+        fromName: "Jordan Price",
+        fromContact: "jordan@example.com",
+        subject: "Fine-line lunar moth inquiry",
+        preview: "Inspired by the lunar moth flash, open to custom changes.",
+        delivery: { ok: true, mode: "demo", to: "studio@hollerandson.ink" },
+        read: false,
+        createdAt
+      },
+      {
+        id: "msg_demo_riley",
+        businessId: "holler-and-son",
+        inquiryId: "inq_demo_riley",
+        appointmentId: "appt_demo_today_2",
+        fromName: "Riley Stone",
+        fromContact: "riley@example.com",
+        subject: "Gallery walk-in consult request",
+        preview: "Interested in the bold panther flash and wants to discuss sizing.",
+        delivery: { ok: true, mode: "demo", to: "studio@hollerandson.ink" },
+        read: true,
+        createdAt
+      }
+    ]
   };
 }
 
@@ -408,6 +633,7 @@ async function readStore() {
       changed = true;
     }
   }
+  if (ensureDemoAccountData(store)) changed = true;
   if (changed) await writeStore(store);
   return store;
 }
@@ -417,6 +643,31 @@ async function writeStore(store) {
   await fs.mkdir(path.dirname(STORE_PATH), { recursive: true });
   await fs.writeFile(tempPath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
   await fs.rename(tempPath, STORE_PATH);
+}
+
+function ensureDemoAccountData(store) {
+  const seed = createSeedStore();
+  const demoBusiness = store.businesses.find((business) => business.id === "holler-and-son");
+  if (!demoBusiness) return false;
+  let changed = false;
+
+  const seedBusiness = seed.businesses.find((business) => business.id === "holler-and-son");
+  for (const art of seedBusiness.art || []) {
+    if (!(demoBusiness.art || []).some((item) => item.id === art.id)) {
+      demoBusiness.art = [art, ...(demoBusiness.art || [])].slice(0, 80);
+      changed = true;
+    }
+  }
+
+  for (const key of ["customers", "inquiries", "appointments", "inbox"]) {
+    for (const item of seed[key] || []) {
+      if (!store[key].some((existing) => existing.id === item.id)) {
+        store[key].push(item);
+        changed = true;
+      }
+    }
+  }
+  return changed;
 }
 
 function normalizeKey(value) {

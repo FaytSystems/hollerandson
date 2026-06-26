@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" role="img" aria-labelledby="title desc">
+  <title id="title">Serpent and peony tattoo flash</title>
+  <desc id="desc">Blackwork serpent wrapped around a peony with red ink accents.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#120d0e"/>
+      <stop offset="1" stop-color="#2b1517"/>
+    </linearGradient>
+    <filter id="grain">
+      <feTurbulence type="fractalNoise" baseFrequency=".75" numOctaves="3"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer><feFuncA type="table" tableValues="0 .12"/></feComponentTransfer>
+    </filter>
+  </defs>
+  <rect width="900" height="700" fill="url(#bg)"/>
+  <rect width="900" height="700" filter="url(#grain)"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M174 432 C260 184 470 178 454 334 C444 430 572 456 628 314 C666 218 782 258 746 384 C700 542 460 580 372 452 C304 352 478 278 548 384" stroke="#f5e3c6" stroke-width="28"/>
+    <path d="M174 432 C260 184 470 178 454 334 C444 430 572 456 628 314 C666 218 782 258 746 384 C700 542 460 580 372 452 C304 352 478 278 548 384" stroke="#131010" stroke-width="12"/>
+    <path d="M228 452 C186 508 190 574 254 606 C322 640 386 594 380 520 C318 556 270 532 228 452Z" fill="#9e1f36" stroke="#f5e3c6" stroke-width="10"/>
+    <path d="M252 472 C272 520 304 552 364 536 M230 532 C276 510 320 500 374 518" stroke="#f2bb64" stroke-width="6"/>
+    <path d="M708 338 l46 -34 l-18 56 l52 24 l-58 10 l-10 58 l-24 -52 l-56 18 l34 -46 l-34 -46 l56 18 l24 -52z" fill="#f2bb64" stroke="#f5e3c6" stroke-width="8"/>
+  </g>
+  <text x="52" y="96" fill="#f5e3c6" font-family="Georgia,serif" font-size="54" font-weight="700">SERPENT PEONY</text>
+</svg>

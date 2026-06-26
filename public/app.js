@@ -435,11 +435,8 @@ function profileLinks(business) {
   return links.join("");
 }
 
-function openProfile(id) {
-  const business = getBusiness(id);
-  if (!business) return;
-  state.selectedBusiness = business;
-  $("#profile-content").innerHTML = `
+function businessProfileHtml(business) {
+  return `
     <div class="profile-hero">
       <img src="${firstImage(business)}" alt="${escapeHtml(business.name)} artwork preview">
       <div>
@@ -476,6 +473,21 @@ function openProfile(id) {
       </div>
     </div>
   `;
+}
+
+function openProfile(id) {
+  const business = getBusiness(id);
+  if (!business) return;
+  state.selectedBusiness = business;
+  $("#profile-content").innerHTML = businessProfileHtml(business);
+  $("#profile-dialog").showModal();
+}
+
+function openBusinessPreview() {
+  const business = state.dashboard?.business;
+  if (!business) return;
+  state.selectedBusiness = business;
+  $("#profile-content").innerHTML = businessProfileHtml(business);
   $("#profile-dialog").showModal();
 }
 
@@ -582,11 +594,35 @@ async function businessSignup(event) {
 async function loadDashboard() {
   const payload = await api("/api/employee/dashboard");
   state.dashboard = payload;
+  normalizeDemoAppointmentDates();
   setAppMode("business");
   $("#dashboard").hidden = false;
   $("#dashboard-title").textContent = payload.business.name;
   $("#employee-badge").textContent = `${payload.employee.name} - ${payload.employee.role}`;
   renderDashboard();
+}
+
+function demoAppointmentStart(daysFromNow, hour, minute) {
+  const date = new Date();
+  date.setDate(date.getDate() + daysFromNow);
+  date.setHours(hour, minute, 0, 0);
+  return date.toISOString();
+}
+
+function normalizeDemoAppointmentDates() {
+  if (state.dashboard?.business?.id !== "holler-and-son") return;
+  const schedule = {
+    appt_demo_today_1: [0, 11, 0],
+    appt_demo_today_2: [0, 15, 30],
+    appt_consult_1: [2, 13, 0],
+    appt_demo_jordan: [2, 13, 0],
+    appt_consult_2: [4, 16, 30],
+    appt_demo_morgan: [4, 16, 30]
+  };
+  state.dashboard.appointments = (state.dashboard.appointments || []).map((appointment) => {
+    const slot = schedule[appointment.id];
+    return slot ? { ...appointment, start: demoAppointmentStart(...slot) } : appointment;
+  });
 }
 
 function renderDashboard() {
@@ -1224,6 +1260,7 @@ function bindEvents() {
   $("#art-form").addEventListener("submit", uploadArt);
   $("#employee-appointment-form").addEventListener("submit", addEmployeeAppointment);
   $("#refresh-dashboard").addEventListener("click", loadDashboard);
+  $("#preview-business-page").addEventListener("click", openBusinessPreview);
   $("#calendar-date").value = state.calendarDate;
   $("#calendar-date").addEventListener("change", (event) => {
     state.calendarDate = event.target.value || new Date().toISOString().slice(0, 10);

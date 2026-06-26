@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" role="img" aria-labelledby="title desc">
+  <title id="title">Traditional dagger tattoo flash</title>
+  <desc id="desc">Gold dagger through a rose with traditional tattoo styling.</desc>
+  <rect width="900" height="700" fill="#111314"/>
+  <path d="M0 0h900v700H0z" fill="#1f1817"/>
+  <circle cx="690" cy="150" r="118" fill="#9cb89b" opacity=".2"/>
+  <circle cx="225" cy="520" r="150" fill="#9e1f36" opacity=".18"/>
+  <g stroke="#f2dfc2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M450 92 L518 430 L450 620 L382 430 Z" fill="#d3a053" stroke-width="14"/>
+    <path d="M450 92 L450 620" fill="none" stroke="#12100e" stroke-width="8"/>
+    <path d="M306 356 L594 356 L548 420 L352 420 Z" fill="#111314" stroke-width="14"/>
+    <path d="M296 478 C214 418 236 300 344 292 C386 222 514 222 556 292 C664 300 686 418 604 478 C530 556 370 556 296 478Z" fill="#9e1f36" stroke-width="12"/>
+    <path d="M340 448 C402 340 498 340 560 448 M334 334 C400 386 498 386 566 334 M450 260 C418 344 418 438 450 528 C482 438 482 344 450 260" fill="none" stroke="#f2bb64" stroke-width="9"/>
+  </g>
+  <text x="52" y="96" fill="#f2dfc2" font-family="Georgia,serif" font-size="54" font-weight="700">DAGGER ROSE</text>
+</svg>

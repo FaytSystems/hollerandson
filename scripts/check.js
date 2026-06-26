@@ -13,6 +13,10 @@ for (const file of [
   "public/assets/tattoo-studio-hero.png",
   "public/assets/holler-son-logo.png",
   "public/assets/holler-son-social-banner.png",
+  "public/assets/demo-art-serpent.svg",
+  "public/assets/demo-art-dagger.svg",
+  "public/assets/demo-art-moth.svg",
+  "public/assets/demo-art-panther.svg",
   "cloudflare/worker.js",
   "cloudflare/schema.sql",
   "wrangler.toml"
@@ -50,12 +54,16 @@ assert.ok(serverTextIncludes("server.js", "/api/business/signup"), "Business sig
 assert.ok(app.includes("/api/customer/signup"), "Customer signup route is present in the client");
 assert.ok(index.includes("customer-dashboard"), "Customer dashboard shell is present");
 assert.ok(index.includes("calendar-view"), "Calendar view controls are present");
+assert.ok(index.includes("preview-business-page"), "Business page preview button is present");
+assert.ok(app.includes("openBusinessPreview"), "Business preview handler is present");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS subscriptions"), "D1 subscription table is present");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS stripe_events"), "D1 Stripe event idempotency table is present");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS business_email_settings"), "D1 business email settings table is present");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS email_messages"), "D1 mailbox message table is present");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS customer_accounts"), "D1 customer account table is present");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS customer_favorites"), "D1 customer favorites table is present");
+assert.ok(schema.includes("art_demo_serpent"), "Demo gallery seed art is present");
+assert.ok(schema.includes("appt_demo_today_1"), "Demo calendar seed appointment is present");
 
 function serverTextIncludes(file, value) {
   return fs.readFileSync(path.join(root, file), "utf8").includes(value);

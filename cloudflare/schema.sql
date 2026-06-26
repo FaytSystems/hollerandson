@@ -273,6 +273,261 @@ INSERT OR IGNORE INTO art (
   datetime('now')
 );
 
+INSERT OR IGNORE INTO art (
+  id, business_id, title, style, caption, r2_key, image_url, created_at
+) VALUES
+  (
+    'art_demo_serpent',
+    'holler-and-son',
+    'Serpent Peony',
+    'blackwork',
+    'Blackwork serpent and peony flash for shoulder or thigh placement.',
+    '',
+    '/assets/demo-art-serpent.svg',
+    datetime('now')
+  ),
+  (
+    'art_demo_dagger',
+    'holler-and-son',
+    'Dagger Rose',
+    'traditional',
+    'Traditional dagger and rose design with warm gold shading.',
+    '',
+    '/assets/demo-art-dagger.svg',
+    datetime('now')
+  ),
+  (
+    'art_demo_lunar_moth',
+    'holler-and-son',
+    'Lunar Moth',
+    'fine-line',
+    'Fine-line moth with lunar details for sternum, back, or forearm.',
+    '',
+    '/assets/demo-art-moth.svg',
+    datetime('now')
+  ),
+  (
+    'art_demo_panther',
+    'holler-and-son',
+    'Bold Panther',
+    'traditional',
+    'Heavy black traditional panther flash with teal accents.',
+    '',
+    '/assets/demo-art-panther.svg',
+    datetime('now')
+  );
+
+INSERT OR IGNORE INTO customers (
+  id, name, email, phone, preferred_contact, created_at, updated_at
+) VALUES
+  ('cust_demo_avery', 'Avery Cole', 'avery@example.com', '(615) 555-0108', 'email', datetime('now'), datetime('now')),
+  ('cust_demo_morgan', 'Morgan Lee', 'morgan@example.com', '(615) 555-0133', 'phone', datetime('now'), datetime('now')),
+  ('cust_demo_jordan', 'Jordan Price', 'jordan@example.com', '(615) 555-0176', 'email', datetime('now'), datetime('now')),
+  ('cust_demo_riley', 'Riley Stone', 'riley@example.com', '(615) 555-0184', 'email', datetime('now'), datetime('now'));
+
+INSERT OR IGNORE INTO inquiries (
+  id, customer_id, business_id, customer_name, contact_method, email, phone,
+  service, artist, placement, budget, message, consent, status, created_at
+) VALUES
+  (
+    'inq_demo_avery',
+    'cust_demo_avery',
+    'holler-and-son',
+    'Avery Cole',
+    'email',
+    'avery@example.com',
+    '(615) 555-0108',
+    'Blackwork peony shoulder piece',
+    'Mara Holler',
+    'Right shoulder',
+    '$450-$700',
+    'Looking for a serpent and peony concept with strong blackwork.',
+    1,
+    'confirmed',
+    datetime('now')
+  ),
+  (
+    'inq_demo_morgan',
+    'cust_demo_morgan',
+    'holler-and-son',
+    'Morgan Lee',
+    'phone',
+    'morgan@example.com',
+    '(615) 555-0133',
+    'Sleeve planning session',
+    'Evan Son',
+    'Left arm',
+    '$1,500+',
+    'Wants to plan a traditional sleeve in three sessions.',
+    1,
+    'pending',
+    datetime('now')
+  ),
+  (
+    'inq_demo_jordan',
+    'cust_demo_jordan',
+    'holler-and-son',
+    'Jordan Price',
+    'email',
+    'jordan@example.com',
+    '(615) 555-0176',
+    'Fine-line lunar moth',
+    'June Vega',
+    'Upper back',
+    '$300-$500',
+    'Inspired by the lunar moth flash, open to custom changes.',
+    1,
+    'new',
+    datetime('now')
+  ),
+  (
+    'inq_demo_riley',
+    'cust_demo_riley',
+    'holler-and-son',
+    'Riley Stone',
+    'email',
+    'riley@example.com',
+    '(615) 555-0184',
+    'Gallery walk-in consult',
+    'June Vega',
+    'Forearm',
+    '$250-$400',
+    'Interested in the bold panther flash and wants to discuss sizing.',
+    1,
+    'confirmed',
+    datetime('now')
+  );
+
+INSERT OR IGNORE INTO appointments (
+  id, business_id, inquiry_id, customer_name, contact, contact_method, service,
+  artist, start, duration_minutes, status, notes, source, created_at
+) VALUES
+  (
+    'appt_demo_today_1',
+    'holler-and-son',
+    'inq_demo_avery',
+    'Avery Cole',
+    'avery@example.com',
+    'email',
+    'Blackwork peony shoulder piece',
+    'Mara Holler',
+    strftime('%Y-%m-%dT11:00:00.000Z', 'now'),
+    90,
+    'confirmed',
+    'Review serpent-peony references and placement photos.',
+    'customer',
+    datetime('now')
+  ),
+  (
+    'appt_demo_today_2',
+    'holler-and-son',
+    'inq_demo_riley',
+    'Riley Stone',
+    'riley@example.com',
+    'email',
+    'Gallery walk-in consult',
+    'June Vega',
+    strftime('%Y-%m-%dT15:30:00.000Z', 'now'),
+    45,
+    'confirmed',
+    'Interested in the bold panther flash.',
+    'employee',
+    datetime('now')
+  ),
+  (
+    'appt_demo_jordan',
+    'holler-and-son',
+    'inq_demo_jordan',
+    'Jordan Price',
+    'jordan@example.com',
+    'email',
+    'Fine-line lunar moth',
+    'June Vega',
+    strftime('%Y-%m-%dT13:00:00.000Z', 'now', '+2 days'),
+    45,
+    'confirmed',
+    'Fine-line concept review and sizing.',
+    'customer',
+    datetime('now')
+  ),
+  (
+    'appt_demo_morgan',
+    'holler-and-son',
+    'inq_demo_morgan',
+    'Morgan Lee',
+    '(615) 555-0133',
+    'phone',
+    'Sleeve planning',
+    'Evan Son',
+    strftime('%Y-%m-%dT16:30:00.000Z', 'now', '+4 days'),
+    60,
+    'pending',
+    'Prefers phone confirmation.',
+    'customer',
+    datetime('now')
+  );
+
+UPDATE appointments
+SET inquiry_id = 'inq_demo_riley'
+WHERE id = 'appt_demo_today_2' AND business_id = 'holler-and-son';
+
+INSERT OR IGNORE INTO inbox (
+  id, business_id, inquiry_id, appointment_id, from_name, from_contact,
+  subject, preview, delivery_json, read, created_at
+) VALUES
+  (
+    'msg_demo_avery',
+    'holler-and-son',
+    'inq_demo_avery',
+    'appt_demo_today_1',
+    'Avery Cole',
+    'avery@example.com',
+    'New Blackwork peony shoulder piece inquiry',
+    'Looking for a serpent and peony concept with strong blackwork.',
+    '{"ok":true,"mode":"demo","to":"studio@hollerandson.ink"}',
+    0,
+    datetime('now')
+  ),
+  (
+    'msg_demo_morgan',
+    'holler-and-son',
+    'inq_demo_morgan',
+    'appt_demo_morgan',
+    'Morgan Lee',
+    '(615) 555-0133',
+    'Sleeve planning session request',
+    'Wants to plan a traditional sleeve in three sessions.',
+    '{"ok":true,"mode":"demo","to":"studio@hollerandson.ink"}',
+    1,
+    datetime('now')
+  ),
+  (
+    'msg_demo_jordan',
+    'holler-and-son',
+    'inq_demo_jordan',
+    'appt_demo_jordan',
+    'Jordan Price',
+    'jordan@example.com',
+    'Fine-line lunar moth inquiry',
+    'Inspired by the lunar moth flash, open to custom changes.',
+    '{"ok":true,"mode":"demo","to":"studio@hollerandson.ink"}',
+    0,
+    datetime('now')
+  ),
+  (
+    'msg_demo_riley',
+    'holler-and-son',
+    'inq_demo_riley',
+    'appt_demo_today_2',
+    'Riley Stone',
+    'riley@example.com',
+    'Gallery walk-in consult request',
+    'Interested in the bold panther flash and wants to discuss sizing.',
+    '{"ok":true,"mode":"demo","to":"studio@hollerandson.ink"}',
+    1,
+    datetime('now')
+  );
+
 INSERT OR IGNORE INTO business_email_settings (
   business_id, local_part, domain, display_name, reply_to, forward_to,
   inbox_enabled, forwarding_enabled, signature, created_at, updated_at

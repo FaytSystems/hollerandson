@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" role="img" aria-labelledby="title desc">
+  <title id="title">Traditional panther tattoo flash</title>
+  <desc id="desc">Bold black panther head with teal and gold tattoo flash accents.</desc>
+  <rect width="900" height="700" fill="#101111"/>
+  <path d="M0 0h900v700H0z" fill="#182020"/>
+  <g stroke="#f4e1c2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M238 438 C232 270 336 166 450 166 C564 166 668 270 662 438 C624 568 520 620 450 620 C380 620 276 568 238 438Z" fill="#0b0b0c" stroke-width="14"/>
+    <path d="M296 244 L214 126 L358 190 M604 244 L686 126 L542 190" fill="#0b0b0c" stroke-width="14"/>
+    <path d="M342 388 C376 348 414 348 438 388 M462 388 C486 348 524 348 558 388" fill="none" stroke="#61b6b3" stroke-width="12"/>
+    <path d="M450 424 L420 476 L450 508 L480 476 Z" fill="#9e1f36" stroke-width="10"/>
+    <path d="M342 520 C402 560 498 560 558 520 M320 456 L204 420 M332 486 L204 500 M580 456 L696 420 M568 486 L696 500" fill="none" stroke="#f4e1c2" stroke-width="8"/>
+    <path d="M136 606 C256 536 330 620 450 566 C570 620 644 536 764 606" fill="none" stroke="#f2bb64" stroke-width="8"/>
+  </g>
+  <text x="52" y="96" fill="#f4e1c2" font-family="Georgia,serif" font-size="54" font-weight="700">BOLD PANTHER</text>
+</svg>

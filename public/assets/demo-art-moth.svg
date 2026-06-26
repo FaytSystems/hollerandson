@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" role="img" aria-labelledby="title desc">
+  <title id="title">Fine-line lunar moth tattoo flash</title>
+  <desc id="desc">Symmetrical fine-line moth with moon phases and soft gold accents.</desc>
+  <rect width="900" height="700" fill="#12100f"/>
+  <path d="M0 0h900v700H0z" fill="#211817"/>
+  <g fill="none" stroke="#f4e5cd" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M450 210 C370 88 224 150 214 324 C326 318 382 400 450 548 C518 400 574 318 686 324 C676 150 530 88 450 210Z" stroke-width="16"/>
+    <path d="M450 210 C420 312 422 440 450 548 C478 440 480 312 450 210Z" stroke-width="10"/>
+    <path d="M322 300 C368 336 408 388 450 548 M578 300 C532 336 492 388 450 548" stroke-width="6"/>
+    <path d="M182 560 C254 506 332 506 404 560 M496 560 C568 506 646 506 718 560" stroke="#f2bb64" stroke-width="8"/>
+    <circle cx="450" cy="166" r="32" stroke="#f2bb64" stroke-width="8"/>
+    <path d="M324 120 a34 34 0 1 0 0 68 a20 34 0 1 1 0 -68 M576 120 a34 34 0 1 1 0 68 a20 34 0 1 0 0 -68" stroke="#c89b54" stroke-width="8"/>
+  </g>
+  <text x="52" y="96" fill="#f4e5cd" font-family="Georgia,serif" font-size="54" font-weight="700">LUNAR MOTH</text>
+</svg>
