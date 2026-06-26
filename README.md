@@ -9,6 +9,7 @@ A Cloudflare-ready tattoo appointment marketplace and studio portal.
 - Appointment request flow where customers choose phone or email contact.
 - Employee login area with inbox, inquiry status, calendar, customer records, public profile editing, and art uploads.
 - Email notification hook for tattoo businesses through Resend.
+- Professional per-business email addresses with in-house inboxes, outbound customer email, and optional forwarding.
 - Stripe monthly-fee buy button in the employee subscription tab.
 - Stripe webhook endpoint that turns active subscriptions into business portal access.
 - Cloudflare D1 schema for accounts, businesses, customers, inquiries, appointments, inbox, sessions, and art metadata.
@@ -83,6 +84,13 @@ binding = "ART_BUCKET"
 bucket_name = "hollerandson-art"
 ```
 
+Set the default professional mailbox domain in `wrangler.toml`:
+
+```toml
+[vars]
+BUSINESS_EMAIL_DOMAIN = "hollerandson.com"
+```
+
 Apply the schema locally:
 
 ```powershell
@@ -122,6 +130,48 @@ npx wrangler secret put BUSINESS_NOTIFICATION_EMAIL
 ```
 
 If `RESEND_API_KEY` is not set, appointment requests are still saved to the employee inbox and calendar, but outbound email is recorded as `local-inbox`.
+
+## Professional business email
+
+Each subscribed tattoo business can create a professional Holler & Son mailbox in the employee dashboard.
+
+Example:
+
+```text
+black-rose@hollerandson.com
+```
+
+The Mailbox tab supports:
+
+- custom local part, such as `black-rose`
+- display name, such as `Black Rose Tattoo`
+- reply-to address, such as `owner@blackrosetattoo.com`
+- optional forwarding to the business owner's existing email
+- in-house incoming and sent mailbox stored in D1
+- outbound customer emails through Resend
+
+Recommended sending pattern:
+
+```text
+From: Black Rose Tattoo <black-rose@hollerandson.com>
+Reply-To: owner@blackrosetattoo.com
+To: customer@email.com
+```
+
+### Inbound mailbox setup
+
+Cloudflare Email Service routes incoming email into the Worker through the `email(message, env, ctx)` handler. The Worker stores incoming email in D1 and forwards a copy through Resend when forwarding is enabled.
+
+In Cloudflare:
+
+1. Open Email Routing / Email Service for the domain used by `BUSINESS_EMAIL_DOMAIN`.
+2. Enable routing for the domain.
+3. Route a catch-all address or each business address to the `hollerandson` Worker.
+4. Use a route like `*@hollerandson.com` or individual addresses like `black-rose@hollerandson.com`.
+
+The Worker rejects unknown mailbox addresses, stores known incoming messages in `email_messages`, and forwards to the configured `forwardTo` address when `forwardingEnabled` is on.
+
+Cloudflare's Email Workers API exposes an `email()` handler with `message.from`, `message.to`, headers, raw content, `message.forward()`, `message.reply()`, and `message.setReject()`. This app uses the handler to store mail in D1 and uses Resend for professional outbound and forwarding delivery.
 
 ## Stripe monthly fee
 
@@ -195,7 +245,7 @@ The Stripe CLI secret is different from the Dashboard webhook secret.
 
 ## Data model
 
-- D1 stores business pages, employees, sessions, saved customers, inquiries, appointments, inbox notifications, subscription state, processed Stripe events, and art metadata.
+- D1 stores business pages, employees, sessions, saved customers, inquiries, appointments, inbox notifications, professional mailbox settings, in-house email messages, subscription state, processed Stripe events, and art metadata.
 - R2 stores uploaded tattoo art images per business account.
 - Local preview stores data in `data/store.json`.
 
@@ -214,6 +264,7 @@ These actions require an active or trialing subscription:
 
 - profile edits
 - art uploads and deletes
+- professional email setup and customer email sending
 - appointment creation
 - inquiry status updates
 - inbox, customer records, and calendar data

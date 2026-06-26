@@ -296,6 +296,22 @@ function createSeedStore() {
       }
     ],
     stripeEvents: [],
+    emailSettings: [
+      {
+        businessId: "holler-and-son",
+        localPart: "holler-and-son",
+        domain: "hollerandson.com",
+        displayName: "Holler & Son Tattoo Co.",
+        replyTo: "studio@hollerandson.ink",
+        forwardTo: "studio@hollerandson.ink",
+        inboxEnabled: true,
+        forwardingEnabled: true,
+        signature: "Holler & Son Tattoo Co.\nBook online with Holler & Son.",
+        createdAt,
+        updatedAt: createdAt
+      }
+    ],
+    emailMessages: [],
     customers: [],
     inquiries: [],
     appointments: [
@@ -368,6 +384,14 @@ async function readStore() {
   }
   if (!Array.isArray(store.stripeEvents)) {
     store.stripeEvents = [];
+    changed = true;
+  }
+  if (!Array.isArray(store.emailSettings)) {
+    store.emailSettings = [];
+    changed = true;
+  }
+  if (!Array.isArray(store.emailMessages)) {
+    store.emailMessages = [];
     changed = true;
   }
   if (!Array.isArray(store.customers)) {
@@ -529,6 +553,152 @@ function subscriptionRequiredResponse(store, auth) {
         error: "A current subscription is required for this business action.",
         access
       };
+}
+
+function emailDomain() {
+  return cleanString(process.env.BUSINESS_EMAIL_DOMAIN || "hollerandson.com").toLowerCase();
+}
+
+function emailLocalPart(value) {
+  return normalizeKey(value).replace(/\s+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "studio";
+}
+
+function professionalAddress(settings) {
+  return `${settings.localPart}@${settings.domain}`.toLowerCase();
+}
+
+function formatFrom(displayName, address) {
+  const safeName = cleanString(displayName || "Holler & Son").replace(/["<>]/g, "");
+  return `${safeName} <${address}>`;
+}
+
+function publicEmailSettings(settings) {
+  if (!settings) return null;
+  return {
+    businessId: settings.businessId,
+    localPart: settings.localPart,
+    domain: settings.domain,
+    address: professionalAddress(settings),
+    displayName: settings.displayName,
+    replyTo: settings.replyTo || "",
+    forwardTo: settings.forwardTo || "",
+    inboxEnabled: Boolean(settings.inboxEnabled),
+    forwardingEnabled: Boolean(settings.forwardingEnabled),
+    signature: settings.signature || "",
+    updatedAt: settings.updatedAt
+  };
+}
+
+function ensureEmailSettings(store, business) {
+  let settings = store.emailSettings.find((candidate) => candidate.businessId === business.id);
+  if (!settings) {
+    const createdAt = nowIso();
+    settings = {
+      businessId: business.id,
+      localPart: emailLocalPart(business.slug || business.name),
+      domain: emailDomain(),
+      displayName: business.name,
+      replyTo: business.email || "",
+      forwardTo: business.email || "",
+      inboxEnabled: true,
+      forwardingEnabled: false,
+      signature: `${business.name}\nSent through Holler & Son.`,
+      createdAt,
+      updatedAt: createdAt
+    };
+    store.emailSettings.push(settings);
+  }
+  return settings;
+}
+
+async function sendResendEmail(payload) {
+  if (!process.env.RESEND_API_KEY) {
+    return {
+      ok: false,
+      mode: "local-inbox",
+      detail: "RESEND_API_KEY is not configured; email was saved but not delivered."
+    };
+  }
+
+  try {
+    const body = {
+      from: payload.from,
+      to: Array.isArray(payload.to) ? payload.to : [payload.to],
+      subject: payload.subject,
+      text: payload.text,
+      html: payload.html
+    };
+    if (payload.replyTo) body.reply_to = payload.replyTo;
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+    const providerResponse = await response.json().catch(() => ({}));
+    return {
+      ok: response.ok,
+      mode: "resend",
+      providerStatus: response.status,
+      providerResponse
+    };
+  } catch (error) {
+    return { ok: false, mode: "resend", detail: error.message };
+  }
+}
+
+async function sendBusinessEmail(store, business, settings, body) {
+  const to = cleanString(body.to);
+  const subject = cleanString(body.subject);
+  const message = cleanString(body.message);
+  if (!to || !to.includes("@")) return { status: 400, payload: { error: "Recipient email is required." } };
+  if (!subject) return { status: 400, payload: { error: "Subject is required." } };
+  if (!message) return { status: 400, payload: { error: "Message is required." } };
+
+  const fromAddress = professionalAddress(settings);
+  const signature = cleanString(settings.signature);
+  const text = `${message}${signature ? `\n\n--\n${signature}` : ""}`;
+  const html = `
+    <div style="font-family:Inter,Arial,sans-serif;line-height:1.55;color:#171414">
+      ${escapeHtml(message).replace(/\n/g, "<br>")}
+      ${
+        signature
+          ? `<hr style="border:none;border-top:1px solid #ddd;margin:24px 0 12px"><p style="color:#6b6259">${escapeHtml(signature).replace(/\n/g, "<br>")}</p>`
+          : ""
+      }
+    </div>
+  `;
+  const delivery = await sendResendEmail({
+    from: formatFrom(settings.displayName || business.name, fromAddress),
+    to,
+    replyTo: settings.replyTo || fromAddress,
+    subject,
+    text,
+    html
+  });
+  const createdAt = nowIso();
+  store.emailMessages.push({
+    id: randomId("email"),
+    businessId: business.id,
+    direction: "outgoing",
+    status: delivery.ok ? "sent" : "saved",
+    fromAddress,
+    toAddress: to,
+    replyTo: settings.replyTo || fromAddress,
+    subject,
+    textBody: text,
+    htmlBody: html,
+    rawPreview: "",
+    messageId: "",
+    inReplyTo: "",
+    forwardedTo: "",
+    provider: delivery,
+    read: true,
+    createdAt
+  });
+  return { status: delivery.ok ? 201 : 202, payload: { ok: delivery.ok, delivery, message: { to, subject, createdAt } } };
 }
 
 function escapeHtml(value) {
@@ -1013,6 +1183,8 @@ async function handleApi(req, res, url) {
   if (method === "GET" && pathname === "/api/employee/dashboard") {
     const businessId = auth.business.id;
     const access = accessForSubscription(getSubscription(store, businessId));
+    const emailSettings = ensureEmailSettings(store, auth.business);
+    await writeStore(store);
     return sendJson(res, 200, {
       employee: {
         id: auth.employee.id,
@@ -1022,6 +1194,12 @@ async function handleApi(req, res, url) {
       },
       business: publicBusiness(auth.business),
       access,
+      emailSettings: publicEmailSettings(emailSettings),
+      emailMessages: access.isSubscribed
+        ? store.emailMessages
+            .filter((message) => message.businessId === businessId)
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        : [],
       inquiries: access.isSubscribed
         ? store.inquiries
             .filter((inquiry) => inquiry.businessId === businessId)
@@ -1081,6 +1259,69 @@ async function handleApi(req, res, url) {
     business.updatedAt = nowIso();
     await writeStore(store);
     return sendJson(res, 200, { ok: true, business: publicBusiness(business) });
+  }
+
+  if (method === "PATCH" && pathname === "/api/business/email-settings") {
+    const subscriptionError = subscriptionRequiredResponse(store, auth);
+    if (subscriptionError) return sendJson(res, 402, subscriptionError);
+
+    const body = await readJsonBody(req);
+    const localPart = emailLocalPart(body.localPart || auth.business.slug || auth.business.name);
+    const domain = cleanString(body.domain || emailDomain()).toLowerCase();
+    const duplicate = store.emailSettings.find(
+      (settings) =>
+        settings.businessId !== auth.business.id &&
+        settings.localPart.toLowerCase() === localPart.toLowerCase() &&
+        settings.domain.toLowerCase() === domain
+    );
+    if (duplicate) return sendJson(res, 409, { error: "That professional email address is already taken." });
+    const settings = ensureEmailSettings(store, auth.business);
+    settings.localPart = localPart;
+    settings.domain = domain;
+    settings.displayName = cleanString(body.displayName || auth.business.name);
+    settings.replyTo = cleanString(body.replyTo || auth.business.email);
+    settings.forwardTo = cleanString(body.forwardTo);
+    settings.inboxEnabled = Boolean(body.inboxEnabled);
+    settings.forwardingEnabled = Boolean(body.forwardingEnabled);
+    settings.signature = cleanString(body.signature);
+    settings.updatedAt = nowIso();
+    if (settings.replyTo && !settings.replyTo.includes("@")) {
+      return sendJson(res, 400, { error: "Reply-to must be a valid email address." });
+    }
+    if (settings.forwardTo && !settings.forwardTo.includes("@")) {
+      return sendJson(res, 400, { error: "Forward-to must be a valid email address." });
+    }
+    await writeStore(store);
+    return sendJson(res, 200, { ok: true, emailSettings: publicEmailSettings(settings) });
+  }
+
+  if (method === "POST" && pathname === "/api/business/email/send") {
+    const subscriptionError = subscriptionRequiredResponse(store, auth);
+    if (subscriptionError) return sendJson(res, 402, subscriptionError);
+
+    const result = await sendBusinessEmail(
+      store,
+      auth.business,
+      ensureEmailSettings(store, auth.business),
+      await readJsonBody(req)
+    );
+    await writeStore(store);
+    return sendJson(res, result.status, result.payload);
+  }
+
+  const emailReadMatch = pathname.match(/^\/api\/business\/email\/messages\/([^/]+)$/);
+  if (method === "PATCH" && emailReadMatch) {
+    const subscriptionError = subscriptionRequiredResponse(store, auth);
+    if (subscriptionError) return sendJson(res, 402, subscriptionError);
+
+    const body = await readJsonBody(req);
+    const message = store.emailMessages.find(
+      (candidate) => candidate.id === decodeURIComponent(emailReadMatch[1]) && candidate.businessId === auth.business.id
+    );
+    if (!message) return sendJson(res, 404, { error: "Email message not found." });
+    message.read = Boolean(body.read);
+    await writeStore(store);
+    return sendJson(res, 200, { ok: true });
   }
 
   if (method === "POST" && pathname === "/api/business/art") {

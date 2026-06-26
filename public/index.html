@@ -155,6 +155,7 @@
           <div class="dashboard-tabs" role="tablist" aria-label="Dashboard sections">
             <button class="tab-button is-active" data-tab="calendar" type="button">Calendar</button>
             <button class="tab-button" data-tab="inbox" type="button">Inbox</button>
+            <button class="tab-button" data-tab="mailbox" type="button">Mailbox</button>
             <button class="tab-button" data-tab="profile" type="button">Studio page</button>
             <button class="tab-button" data-tab="art" type="button">Art wall</button>
             <button class="tab-button" data-tab="customers" type="button">Customers</button>
@@ -214,6 +215,48 @@
                 <div id="message-list" class="message-list"></div>
               </div>
             </div>
+          </section>
+
+          <section class="tab-panel" id="tab-mailbox">
+            <div class="mailbox-grid">
+              <form id="email-settings-form" class="mini-panel">
+                <div class="panel-title">
+                  <span>Professional email</span>
+                  <span id="professional-email-preview"></span>
+                </div>
+                <label><span>Email name</span><input name="localPart" placeholder="black-rose"></label>
+                <label><span>Domain</span><input name="domain" placeholder="hollerandson.com"></label>
+                <label><span>Display name</span><input name="displayName" placeholder="Black Rose Tattoo"></label>
+                <label><span>Reply-to</span><input name="replyTo" type="email" placeholder="owner@studio.com"></label>
+                <label><span>Forward to</span><input name="forwardTo" type="email" placeholder="owner@studio.com"></label>
+                <label class="check-row">
+                  <input name="inboxEnabled" type="checkbox">
+                  <span>Receive messages in Holler & Son inbox.</span>
+                </label>
+                <label class="check-row">
+                  <input name="forwardingEnabled" type="checkbox">
+                  <span>Forward incoming mail to the address above.</span>
+                </label>
+                <label><span>Email signature</span><textarea name="signature" rows="4"></textarea></label>
+                <button class="primary-action" type="submit">Save mailbox</button>
+              </form>
+
+              <form id="compose-email-form" class="mini-panel">
+                <div class="panel-title"><span>Send customer email</span></div>
+                <label><span>To</span><input name="to" type="email" required placeholder="customer@email.com"></label>
+                <label><span>Subject</span><input name="subject" required placeholder="Your tattoo appointment"></label>
+                <label><span>Message</span><textarea name="message" rows="8" required></textarea></label>
+                <button class="primary-action" type="submit">Send email</button>
+              </form>
+            </div>
+            <div class="section-head tight mailbox-head">
+              <div>
+                <p class="eyebrow">In-house inbox</p>
+                <h3>Incoming and sent messages</h3>
+              </div>
+              <button class="secondary-action" id="refresh-mailbox" type="button">Refresh</button>
+            </div>
+            <div id="mailbox-list" class="mailbox-list"></div>
           </section>
 
           <section class="tab-panel" id="tab-profile">
@@ -358,6 +401,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260626-subscriptions" defer></script>
+    <script src="/app.js?v=20260626-mailbox" defer></script>
   </body>
 </html>

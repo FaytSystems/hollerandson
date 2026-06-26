@@ -44,7 +44,11 @@ assert.ok(app.includes("client-reference-id"), "Stripe buy button maps checkout 
 assert.ok(index.includes("stripe-buy-button-container"), "Stripe buy button container is present");
 assert.ok(worker.includes("/api/stripe/webhook"), "Cloudflare Stripe webhook route is present");
 assert.ok(worker.includes("verifyStripeSignature"), "Cloudflare webhook signature verification is present");
+assert.ok(worker.includes("async email(message, env"), "Cloudflare inbound email handler is present");
+assert.ok(worker.includes("/api/business/email/send"), "Business email send route is present");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS subscriptions"), "D1 subscription table is present");
 assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS stripe_events"), "D1 Stripe event idempotency table is present");
+assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS business_email_settings"), "D1 business email settings table is present");
+assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS email_messages"), "D1 mailbox message table is present");
 
 console.log("Holler & Son checks passed.");

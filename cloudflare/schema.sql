@@ -112,6 +112,41 @@ CREATE TABLE IF NOT EXISTS inbox (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS business_email_settings (
+  business_id TEXT PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,
+  local_part TEXT NOT NULL,
+  domain TEXT NOT NULL DEFAULT 'hollerandson.com',
+  display_name TEXT NOT NULL,
+  reply_to TEXT DEFAULT '',
+  forward_to TEXT DEFAULT '',
+  inbox_enabled INTEGER DEFAULT 1,
+  forwarding_enabled INTEGER DEFAULT 0,
+  signature TEXT DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(local_part, domain)
+);
+
+CREATE TABLE IF NOT EXISTS email_messages (
+  id TEXT PRIMARY KEY,
+  business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  direction TEXT NOT NULL CHECK(direction IN ('incoming', 'outgoing')),
+  status TEXT NOT NULL DEFAULT 'stored',
+  from_address TEXT NOT NULL,
+  to_address TEXT NOT NULL,
+  reply_to TEXT DEFAULT '',
+  subject TEXT DEFAULT '',
+  text_body TEXT DEFAULT '',
+  html_body TEXT DEFAULT '',
+  raw_preview TEXT DEFAULT '',
+  message_id TEXT DEFAULT '',
+  in_reply_to TEXT DEFAULT '',
+  forwarded_to TEXT DEFAULT '',
+  provider_json TEXT DEFAULT '{}',
+  read INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS subscriptions (
   id TEXT PRIMARY KEY,
   business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -139,6 +174,8 @@ CREATE INDEX IF NOT EXISTS idx_inquiries_business ON inquiries(business_id, crea
 CREATE INDEX IF NOT EXISTS idx_appointments_business ON appointments(business_id, start);
 CREATE INDEX IF NOT EXISTS idx_inbox_business ON inbox(business_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_employee ON sessions(employee_id);
+CREATE INDEX IF NOT EXISTS idx_email_settings_address ON business_email_settings(local_part, domain);
+CREATE INDEX IF NOT EXISTS idx_email_messages_business ON email_messages(business_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_business ON subscriptions(business_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_customer ON subscriptions(stripe_customer_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
@@ -192,6 +229,23 @@ INSERT OR IGNORE INTO art (
   'A look at the studio mood and flash wall.',
   '',
   '/assets/tattoo-studio-hero.png',
+  datetime('now')
+);
+
+INSERT OR IGNORE INTO business_email_settings (
+  business_id, local_part, domain, display_name, reply_to, forward_to,
+  inbox_enabled, forwarding_enabled, signature, created_at, updated_at
+) VALUES (
+  'holler-and-son',
+  'holler-and-son',
+  'hollerandson.com',
+  'Holler & Son Tattoo Co.',
+  'studio@hollerandson.ink',
+  'studio@hollerandson.ink',
+  1,
+  1,
+  'Holler & Son Tattoo Co.\nBook online with Holler & Son.',
+  datetime('now'),
   datetime('now')
 );
 

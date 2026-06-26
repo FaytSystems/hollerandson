@@ -496,7 +496,8 @@ textarea:focus {
 }
 
 .split-panel,
-.inbox-grid {
+.inbox-grid,
+.mailbox-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 420px);
   gap: 1rem;
@@ -505,6 +506,7 @@ textarea:focus {
 .calendar-list,
 .inquiry-list,
 .message-list,
+.mailbox-list,
 .art-wall {
   display: grid;
   gap: 0.8rem;
@@ -512,13 +514,35 @@ textarea:focus {
 
 .calendar-item,
 .inquiry-item,
-.message-item {
+.message-item,
+.mailbox-item {
   display: grid;
   gap: 0.55rem;
   padding: 1rem;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.18);
+}
+
+.mailbox-head {
+  margin-top: 1.2rem;
+}
+
+#professional-email-preview {
+  color: var(--amber);
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.mailbox-item.unread {
+  border-color: rgba(242, 187, 100, 0.46);
+  background: rgba(242, 187, 100, 0.08);
+}
+
+.mailbox-body {
+  color: var(--muted);
+  white-space: pre-wrap;
 }
 
 .calendar-date {
@@ -703,6 +727,7 @@ th {
   .login-panel,
   .split-panel,
   .inbox-grid,
+  .mailbox-grid,
   .subscription-panel {
     grid-template-columns: 1fr;
   }

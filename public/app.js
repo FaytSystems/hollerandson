@@ -361,6 +361,7 @@ function renderDashboard() {
   renderCalendar();
   renderInquiries();
   renderMessages();
+  renderMailbox();
   fillProfileForm();
   renderDashboardArt();
   renderCustomers();
@@ -486,6 +487,104 @@ function renderMessages() {
       `;
     })
     .join("");
+}
+
+function renderMailbox() {
+  fillEmailSettingsForm();
+  renderMailboxMessages();
+}
+
+function fillEmailSettingsForm() {
+  const form = $("#email-settings-form");
+  const settings = state.dashboard?.emailSettings || {};
+  if (!form) return;
+  form.localPart.value = settings.localPart || "";
+  form.domain.value = settings.domain || "hollerandson.com";
+  form.displayName.value = settings.displayName || state.dashboard?.business?.name || "";
+  form.replyTo.value = settings.replyTo || state.dashboard?.business?.email || "";
+  form.forwardTo.value = settings.forwardTo || "";
+  form.inboxEnabled.checked = settings.inboxEnabled !== false;
+  form.forwardingEnabled.checked = Boolean(settings.forwardingEnabled);
+  form.signature.value = settings.signature || "";
+  $("#professional-email-preview").textContent = settings.address || `${form.localPart.value || "studio"}@${form.domain.value || "hollerandson.com"}`;
+  $$("#email-settings-form input, #email-settings-form textarea, #email-settings-form button, #compose-email-form input, #compose-email-form textarea, #compose-email-form button").forEach((control) => {
+    control.disabled = !hasSubscriptionAccess();
+  });
+}
+
+function renderMailboxMessages() {
+  const list = $("#mailbox-list");
+  if (!hasSubscriptionAccess()) {
+    list.innerHTML = gatedMessage("Professional mailbox");
+    return;
+  }
+  const messages = state.dashboard?.emailMessages || [];
+  if (!messages.length) {
+    list.innerHTML = '<p class="muted">Incoming and sent customer emails will appear here.</p>';
+    return;
+  }
+  list.innerHTML = messages
+    .map((message) => {
+      const direction = message.direction === "incoming" ? "Incoming" : "Sent";
+      const body = message.textBody || message.rawPreview || "";
+      const contactLine =
+        message.direction === "incoming"
+          ? `From ${message.fromAddress} to ${message.toAddress}`
+          : `To ${message.toAddress} from ${message.fromAddress}`;
+      return `
+        <article class="mailbox-item ${message.read ? "" : "unread"}">
+          <div class="meta-line">
+            <span class="tag">${escapeHtml(direction)}</span>
+            <span>${escapeHtml(message.status || "stored")}</span>
+            <span>${shortDate(message.createdAt)}</span>
+            ${message.forwardedTo ? `<span>Forwarded to ${escapeHtml(message.forwardedTo)}</span>` : ""}
+          </div>
+          <h3>${escapeHtml(message.subject || "(No subject)")}</h3>
+          <p class="meta-line">${escapeHtml(contactLine)}</p>
+          <p class="mailbox-body">${escapeHtml(body).slice(0, 900)}</p>
+          ${
+            message.direction === "incoming" && !message.read
+              ? `<button class="ghost-action" data-email-read="${message.id}" type="button">Mark read</button>`
+              : ""
+          }
+        </article>
+      `;
+    })
+    .join("");
+}
+
+async function saveEmailSettings(event) {
+  event.preventDefault();
+  if (!hasSubscriptionAccess()) return toast("Activate the studio subscription before editing mailbox settings.");
+  const response = await api("/api/business/email-settings", {
+    method: "PATCH",
+    body: JSON.stringify(formToObject(event.currentTarget))
+  });
+  state.dashboard.emailSettings = response.emailSettings;
+  fillEmailSettingsForm();
+  toast(`Mailbox saved: ${response.emailSettings.address}`);
+}
+
+async function sendCustomerEmail(event) {
+  event.preventDefault();
+  if (!hasSubscriptionAccess()) return toast("Activate the studio subscription before sending customer email.");
+  const response = await api("/api/business/email/send", {
+    method: "POST",
+    body: JSON.stringify(formToObject(event.currentTarget))
+  });
+  event.currentTarget.reset();
+  toast(response.ok ? "Email sent." : "Email saved locally. Configure Resend to deliver it.");
+  await loadDashboard();
+  activateTab("mailbox");
+}
+
+async function markEmailRead(id) {
+  await api(`/api/business/email/messages/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ read: true })
+  });
+  await loadDashboard();
+  activateTab("mailbox");
 }
 
 function fillProfileForm() {
@@ -704,10 +803,25 @@ function bindEvents() {
 
     const artId = event.target.closest("[data-delete-art]")?.dataset.deleteArt;
     if (artId) await deleteArt(artId);
+
+    const emailReadId = event.target.closest("[data-email-read]")?.dataset.emailRead;
+    if (emailReadId) await markEmailRead(emailReadId);
   });
 
   $("#booking-form").addEventListener("submit", handleBookingSubmit);
   $("#login-form").addEventListener("submit", login);
+  $("#email-settings-form").addEventListener("submit", saveEmailSettings);
+  $("#compose-email-form").addEventListener("submit", sendCustomerEmail);
+  $("#refresh-mailbox").addEventListener("click", async () => {
+    await loadDashboard();
+    activateTab("mailbox");
+  });
+  ["localPart", "domain"].forEach((name) => {
+    $(`#email-settings-form [name="${name}"]`).addEventListener("input", () => {
+      const form = $("#email-settings-form");
+      $("#professional-email-preview").textContent = `${form.localPart.value || "studio"}@${form.domain.value || "hollerandson.com"}`;
+    });
+  });
   $("#profile-form").addEventListener("submit", saveProfile);
   $("#art-form").addEventListener("submit", uploadArt);
   $("#employee-appointment-form").addEventListener("submit", addEmployeeAppointment);

@@ -9,7 +9,7 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "hollerandson"
-database_id = "replace-with-your-d1-database-id"
+database_id = "ed4bc3b8-c1db-4642-8061-97177475921d"
 
 [[r2_buckets]]
 binding = "ART_BUCKET"
@@ -17,4 +17,4 @@ bucket_name = "hollerandson-art"
 
 [vars]
 EMAIL_FROM = "Holler & Son <onboarding@resend.dev>"
-
+BUSINESS_EMAIL_DOMAIN = "hollerandson.com"

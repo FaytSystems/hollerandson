@@ -45,6 +45,15 @@ function clean(value, fallback = "") {
   return String(value ?? fallback).trim();
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function list(value) {
   if (Array.isArray(value)) return value.map((item) => clean(item)).filter(Boolean);
   return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
@@ -60,6 +69,28 @@ function parseJson(value, fallback) {
 
 function normalize(value) {
   return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function emailLocalPart(value) {
+  return normalize(value).replace(/\s+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "studio";
+}
+
+function parseAddress(address) {
+  const match = String(address || "").match(/<([^>]+)>/);
+  return clean(match ? match[1] : address).toLowerCase();
+}
+
+function emailDomain(env) {
+  return clean(env.BUSINESS_EMAIL_DOMAIN || "hollerandson.com").toLowerCase();
+}
+
+function professionalAddress(settings) {
+  return `${settings.local_part}@${settings.domain}`.toLowerCase();
+}
+
+function formatFrom(displayName, address) {
+  const safeName = clean(displayName || "Holler & Son").replace(/["<>]/g, "");
+  return `${safeName} <${address}>`;
 }
 
 function geocode(value) {
@@ -176,6 +207,117 @@ async function getSubscription(env, businessId) {
   ).bind(businessId).first();
 }
 
+function publicEmailSettings(settings) {
+  if (!settings) return null;
+  return {
+    businessId: settings.business_id,
+    localPart: settings.local_part,
+    domain: settings.domain,
+    address: professionalAddress(settings),
+    displayName: settings.display_name,
+    replyTo: settings.reply_to || "",
+    forwardTo: settings.forward_to || "",
+    inboxEnabled: Boolean(settings.inbox_enabled),
+    forwardingEnabled: Boolean(settings.forwarding_enabled),
+    signature: settings.signature || "",
+    updatedAt: settings.updated_at
+  };
+}
+
+async function getEmailSettings(env, businessId) {
+  return env.DB.prepare("SELECT * FROM business_email_settings WHERE business_id = ? LIMIT 1")
+    .bind(businessId)
+    .first();
+}
+
+async function ensureEmailSettings(env, business) {
+  const existing = await getEmailSettings(env, business.id);
+  if (existing) return existing;
+  const now = nowIso();
+  const localPart = emailLocalPart(business.slug || business.name);
+  const domain = emailDomain(env);
+  await env.DB.prepare(
+    `INSERT INTO business_email_settings (
+      business_id, local_part, domain, display_name, reply_to, forward_to,
+      inbox_enabled, forwarding_enabled, signature, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      business.id,
+      localPart,
+      domain,
+      business.name,
+      business.email || "",
+      business.email || "",
+      1,
+      0,
+      `${business.name}\nSent through Holler & Son.`,
+      now,
+      now
+    )
+    .run();
+  return getEmailSettings(env, business.id);
+}
+
+async function getEmailMessages(env, businessId) {
+  const { results } = await env.DB.prepare(
+    `SELECT
+      id, direction, status, from_address AS fromAddress, to_address AS toAddress,
+      reply_to AS replyTo, subject, text_body AS textBody, html_body AS htmlBody,
+      raw_preview AS rawPreview, message_id AS messageId, in_reply_to AS inReplyTo,
+      forwarded_to AS forwardedTo, provider_json AS providerJson, read, created_at AS createdAt
+    FROM email_messages
+    WHERE business_id = ?
+    ORDER BY created_at DESC
+    LIMIT 120`
+  )
+    .bind(businessId)
+    .all();
+  return (results || []).map((message) => ({
+    ...message,
+    provider: parseJson(message.providerJson, {}),
+    read: Boolean(message.read)
+  }));
+}
+
+async function sendResendEmail(env, payload) {
+  if (!env.RESEND_API_KEY) {
+    return {
+      ok: false,
+      mode: "local-inbox",
+      detail: "RESEND_API_KEY is not configured; email was saved but not delivered."
+    };
+  }
+
+  try {
+    const body = {
+      from: payload.from,
+      to: Array.isArray(payload.to) ? payload.to : [payload.to],
+      subject: payload.subject,
+      text: payload.text,
+      html: payload.html
+    };
+    if (payload.replyTo) body.reply_to = payload.replyTo;
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+    const providerResponse = await response.json().catch(() => ({}));
+    return {
+      ok: response.ok,
+      mode: "resend",
+      providerStatus: response.status,
+      providerResponse
+    };
+  } catch (error) {
+    return { ok: false, mode: "resend", detail: error.message };
+  }
+}
+
 function accessForSubscription(subscription) {
   const activeStatuses = new Set(["active", "trialing"]);
   const status = subscription?.status || "none";
@@ -249,6 +391,165 @@ async function sendInquiryEmail(env, business, inquiry, appointment) {
     return { ok: response.ok, mode: "resend", to, providerStatus: response.status, providerResponse };
   } catch (error) {
     return { ok: false, mode: "resend", to, detail: error.message };
+  }
+}
+
+async function sendBusinessEmail(env, business, settings, payload) {
+  const to = clean(payload.to);
+  const subject = clean(payload.subject);
+  const message = clean(payload.message);
+  if (!to || !to.includes("@")) return json({ error: "Recipient email is required." }, 400);
+  if (!subject) return json({ error: "Subject is required." }, 400);
+  if (!message) return json({ error: "Message is required." }, 400);
+
+  const fromAddress = professionalAddress(settings);
+  const signature = clean(settings.signature);
+  const text = `${message}${signature ? `\n\n--\n${signature}` : ""}`;
+  const html = `
+    <div style="font-family:Inter,Arial,sans-serif;line-height:1.55;color:#171414">
+      ${escapeHtml(message).replace(/\n/g, "<br>")}
+      ${
+        signature
+          ? `<hr style="border:none;border-top:1px solid #ddd;margin:24px 0 12px"><p style="color:#6b6259">${escapeHtml(signature).replace(/\n/g, "<br>")}</p>`
+          : ""
+      }
+    </div>
+  `;
+  const delivery = await sendResendEmail(env, {
+    from: formatFrom(settings.display_name || business.name, fromAddress),
+    to,
+    replyTo: settings.reply_to || fromAddress,
+    subject,
+    text,
+    html
+  });
+  const createdAt = nowIso();
+  await env.DB.prepare(
+    `INSERT INTO email_messages (
+      id, business_id, direction, status, from_address, to_address, reply_to,
+      subject, text_body, html_body, provider_json, read, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      randomId("email"),
+      business.id,
+      "outgoing",
+      delivery.ok ? "sent" : "saved",
+      fromAddress,
+      to,
+      settings.reply_to || fromAddress,
+      subject,
+      text,
+      html,
+      JSON.stringify(delivery),
+      1,
+      createdAt
+    )
+    .run();
+  return json({ ok: delivery.ok, delivery, message: { to, subject, createdAt } }, delivery.ok ? 201 : 202);
+}
+
+async function streamToText(stream, limit = 180000) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  while (text.length < limit) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    text += decoder.decode(value, { stream: true });
+  }
+  text += decoder.decode();
+  return text.slice(0, limit);
+}
+
+function rawBodyPreview(raw) {
+  const withoutHeaders = raw.split(/\r?\n\r?\n/).slice(1).join("\n\n") || raw;
+  return withoutHeaders
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/=\r?\n/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 12000);
+}
+
+async function handleIncomingEmail(message, env) {
+  const toAddress = parseAddress(message.to);
+  const [localPart, domain] = toAddress.split("@");
+  if (!localPart || !domain) {
+    message.setReject("Invalid recipient.");
+    return;
+  }
+
+  const settings = await env.DB.prepare(
+    "SELECT * FROM business_email_settings WHERE lower(local_part) = lower(?) AND lower(domain) = lower(?) LIMIT 1"
+  )
+    .bind(localPart, domain)
+    .first();
+  if (!settings) {
+    message.setReject("Unknown Holler & Son mailbox.");
+    return;
+  }
+  if (!settings.inbox_enabled && !settings.forwarding_enabled) {
+    message.setReject("Mailbox is disabled.");
+    return;
+  }
+
+  const raw = await streamToText(message.raw);
+  const subject = clean(message.headers.get("subject") || "(No subject)");
+  const fromAddress = parseAddress(message.from || message.headers.get("from"));
+  const messageId = clean(message.headers.get("message-id"));
+  const inReplyTo = clean(message.headers.get("in-reply-to"));
+  const preview = rawBodyPreview(raw);
+  const createdAt = nowIso();
+  let delivery = { ok: false, mode: "none" };
+
+  if (settings.forwarding_enabled && settings.forward_to) {
+    delivery = await sendResendEmail(env, {
+      from: formatFrom(`${settings.display_name} Mail`, professionalAddress(settings)),
+      to: settings.forward_to,
+      replyTo: fromAddress,
+      subject: `Fwd: ${subject}`,
+      text: `Forwarded from ${fromAddress} to ${toAddress}\n\n${preview || raw.slice(0, 8000)}`,
+      html: `
+        <div style="font-family:Inter,Arial,sans-serif;line-height:1.55;color:#171414">
+          <p><strong>Forwarded from:</strong> ${escapeHtml(fromAddress)}</p>
+          <p><strong>Original recipient:</strong> ${escapeHtml(toAddress)}</p>
+          <hr>
+          <p>${escapeHtml(preview || raw.slice(0, 8000)).replace(/\n/g, "<br>")}</p>
+        </div>
+      `
+    });
+  }
+
+  if (settings.inbox_enabled) {
+    await env.DB.prepare(
+      `INSERT INTO email_messages (
+        id, business_id, direction, status, from_address, to_address, reply_to,
+        subject, text_body, raw_preview, message_id, in_reply_to, forwarded_to,
+        provider_json, read, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(
+        randomId("email"),
+        settings.business_id,
+        "incoming",
+        delivery.ok ? "forwarded" : "received",
+        fromAddress,
+        toAddress,
+        fromAddress,
+        subject,
+        preview,
+        raw.slice(0, 24000),
+        messageId,
+        inReplyTo,
+        settings.forwarding_enabled ? settings.forward_to || "" : "",
+        JSON.stringify(delivery),
+        0,
+        createdAt
+      )
+      .run();
   }
 }
 
@@ -690,20 +991,27 @@ async function api(request, env) {
 
   if (method === "GET" && url.pathname === "/api/employee/dashboard") {
     const businessId = auth.business.id;
-    const [art, subscription] = await Promise.all([getArt(env, businessId), getSubscription(env, businessId)]);
+    const [art, subscription, emailSettings] = await Promise.all([
+      getArt(env, businessId),
+      getSubscription(env, businessId),
+      ensureEmailSettings(env, auth.business)
+    ]);
     const access = accessForSubscription(subscription);
-    const [inquiries, appointments, inbox, customers] = access.isSubscribed
+    const [inquiries, appointments, inbox, customers, emailMessages] = access.isSubscribed
       ? await Promise.all([
           env.DB.prepare("SELECT *, customer_name AS customerName, contact_method AS contactMethod, employee_notes AS employeeNotes, created_at AS createdAt FROM inquiries WHERE business_id = ? ORDER BY created_at DESC").bind(businessId).all(),
           env.DB.prepare("SELECT *, customer_name AS customerName, contact_method AS contactMethod, duration_minutes AS durationMinutes, created_at AS createdAt FROM appointments WHERE business_id = ? ORDER BY start ASC").bind(businessId).all(),
           env.DB.prepare("SELECT *, from_name AS fromName, from_contact AS fromContact, created_at AS createdAt FROM inbox WHERE business_id = ? ORDER BY created_at DESC").bind(businessId).all(),
-          env.DB.prepare("SELECT DISTINCT c.* FROM customers c JOIN inquiries i ON i.customer_id = c.id WHERE i.business_id = ? ORDER BY c.updated_at DESC").bind(businessId).all()
+          env.DB.prepare("SELECT DISTINCT c.* FROM customers c JOIN inquiries i ON i.customer_id = c.id WHERE i.business_id = ? ORDER BY c.updated_at DESC").bind(businessId).all(),
+          { results: await getEmailMessages(env, businessId) }
         ])
-      : [{ results: [] }, { results: [] }, { results: [] }, { results: [] }];
+      : [{ results: [] }, { results: [] }, { results: [] }, { results: [] }, { results: [] }];
     return json({
       employee: auth.employee,
       business: publicBusiness(auth.business, art),
       access,
+      emailSettings: publicEmailSettings(emailSettings),
+      emailMessages: emailMessages.results || [],
       inquiries: inquiries.results || [],
       appointments: appointments.results || [],
       inbox: (inbox.results || []).map((message) => ({ ...message, delivery: parseJson(message.delivery_json, {}) })),
@@ -749,6 +1057,81 @@ async function api(request, env) {
     ).run();
     const updated = await getBusiness(env, auth.business.id);
     return json({ ok: true, business: publicBusiness(updated, await getArt(env, updated.id)) });
+  }
+
+  if (method === "PATCH" && url.pathname === "/api/business/email-settings") {
+    const subscriptionError = await requireSubscribed(env, auth.business.id);
+    if (subscriptionError) return subscriptionError;
+
+    const body = await request.json();
+    const domain = clean(body.domain || env.BUSINESS_EMAIL_DOMAIN || emailDomain(env)).toLowerCase();
+    const localPart = emailLocalPart(body.localPart || auth.business.slug || auth.business.name);
+    const displayName = clean(body.displayName || auth.business.name);
+    const replyTo = clean(body.replyTo || auth.business.email);
+    const forwardTo = clean(body.forwardTo);
+    if (!displayName) return json({ error: "Display name is required." }, 400);
+    if (replyTo && !replyTo.includes("@")) return json({ error: "Reply-to must be a valid email address." }, 400);
+    if (forwardTo && !forwardTo.includes("@")) return json({ error: "Forward-to must be a valid email address." }, 400);
+    const now = nowIso();
+    try {
+      await env.DB.prepare(
+        `INSERT INTO business_email_settings (
+          business_id, local_part, domain, display_name, reply_to, forward_to,
+          inbox_enabled, forwarding_enabled, signature, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(business_id) DO UPDATE SET
+          local_part = excluded.local_part,
+          domain = excluded.domain,
+          display_name = excluded.display_name,
+          reply_to = excluded.reply_to,
+          forward_to = excluded.forward_to,
+          inbox_enabled = excluded.inbox_enabled,
+          forwarding_enabled = excluded.forwarding_enabled,
+          signature = excluded.signature,
+          updated_at = excluded.updated_at`
+      )
+        .bind(
+          auth.business.id,
+          localPart,
+          domain,
+          displayName,
+          replyTo,
+          forwardTo,
+          body.inboxEnabled ? 1 : 0,
+          body.forwardingEnabled ? 1 : 0,
+          clean(body.signature),
+          now,
+          now
+        )
+        .run();
+    } catch (error) {
+      if (String(error.message || "").toLowerCase().includes("unique")) {
+        return json({ error: "That professional email address is already taken." }, 409);
+      }
+      throw error;
+    }
+    const settings = await getEmailSettings(env, auth.business.id);
+    return json({ ok: true, emailSettings: publicEmailSettings(settings) });
+  }
+
+  if (method === "POST" && url.pathname === "/api/business/email/send") {
+    const subscriptionError = await requireSubscribed(env, auth.business.id);
+    if (subscriptionError) return subscriptionError;
+
+    const settings = await ensureEmailSettings(env, auth.business);
+    return sendBusinessEmail(env, auth.business, settings, await request.json());
+  }
+
+  const emailRead = url.pathname.match(/^\/api\/business\/email\/messages\/([^/]+)$/);
+  if (method === "PATCH" && emailRead) {
+    const subscriptionError = await requireSubscribed(env, auth.business.id);
+    if (subscriptionError) return subscriptionError;
+
+    const body = await request.json();
+    await env.DB.prepare("UPDATE email_messages SET read = ? WHERE id = ? AND business_id = ?")
+      .bind(body.read ? 1 : 0, decodeURIComponent(emailRead[1]), auth.business.id)
+      .run();
+    return json({ ok: true });
   }
 
   if (method === "POST" && url.pathname === "/api/business/art") return uploadArt(env, auth, await request.json());
@@ -827,5 +1210,9 @@ export default {
     } catch (error) {
       return json({ error: error.message || "Server error." }, 500);
     }
+  },
+
+  async email(message, env, ctx) {
+    await handleIncomingEmail(message, env, ctx);
   }
 };

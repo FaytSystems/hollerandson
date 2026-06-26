@@ -1,7 +1,7 @@
 node_modules/
+.wrangler/
 data/store.json
 data/.test-store.json
 *.log
 .DS_Store
 Thumbs.db
-
