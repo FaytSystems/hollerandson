@@ -83,6 +83,53 @@ async function sha256(value) {
   return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function hex(buffer) {
+  return Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function timingSafeEqualHex(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  let diff = 0;
+  for (let index = 0; index < a.length; index += 1) {
+    diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
+  }
+  return diff === 0;
+}
+
+async function verifyStripeSignature(rawBody, signatureHeader, endpointSecret) {
+  if (!endpointSecret) throw new Error("STRIPE_WEBHOOK_SECRET is not configured.");
+  if (!signatureHeader) throw new Error("Missing Stripe-Signature header.");
+
+  const parts = Object.fromEntries(
+    signatureHeader.split(",").map((part) => {
+      const [key, ...rest] = part.split("=");
+      return [key, rest.join("=")];
+    })
+  );
+  const timestamp = parts.t;
+  const signatures = signatureHeader
+    .split(",")
+    .filter((part) => part.startsWith("v1="))
+    .map((part) => part.slice(3));
+  if (!timestamp || !signatures.length) throw new Error("Invalid Stripe-Signature header.");
+
+  const age = Math.abs(Date.now() / 1000 - Number(timestamp));
+  if (age > 300) throw new Error("Stripe webhook timestamp is outside tolerance.");
+
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(endpointSecret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const expected = hex(await crypto.subtle.sign("HMAC", key, encoder.encode(`${timestamp}.${rawBody}`)));
+  if (!signatures.some((signature) => timingSafeEqualHex(signature, expected))) {
+    throw new Error("Stripe webhook signature verification failed.");
+  }
+}
+
 function publicBusiness(row, art = [], distanceMiles = null) {
   return {
     id: row.id,
@@ -121,6 +168,43 @@ async function getArt(env, businessId) {
 
 async function getBusiness(env, idOrSlug) {
   return env.DB.prepare("SELECT * FROM businesses WHERE id = ? OR slug = ? LIMIT 1").bind(idOrSlug, idOrSlug).first();
+}
+
+async function getSubscription(env, businessId) {
+  return env.DB.prepare(
+    "SELECT * FROM subscriptions WHERE business_id = ? ORDER BY updated_at DESC LIMIT 1"
+  ).bind(businessId).first();
+}
+
+function accessForSubscription(subscription) {
+  const activeStatuses = new Set(["active", "trialing"]);
+  const status = subscription?.status || "none";
+  const endsAt = subscription?.current_period_end || "";
+  const periodStillValid = !endsAt || new Date(endsAt).getTime() > Date.now();
+  const isSubscribed = Boolean(subscription && activeStatuses.has(status) && periodStillValid);
+  return {
+    isSubscribed,
+    status,
+    currentPeriodEnd: endsAt,
+    cancelAtPeriodEnd: Boolean(subscription?.cancel_at_period_end),
+    stripeCustomerId: subscription?.stripe_customer_id || "",
+    stripeSubscriptionId: subscription?.stripe_subscription_id || ""
+  };
+}
+
+async function requireSubscribed(env, businessId) {
+  const subscription = await getSubscription(env, businessId);
+  const access = accessForSubscription(subscription);
+  if (!access.isSubscribed) {
+    return json(
+      {
+        error: "A current subscription is required for this business action.",
+        access
+      },
+      402
+    );
+  }
+  return null;
 }
 
 async function sendInquiryEmail(env, business, inquiry, appointment) {
@@ -367,6 +451,9 @@ async function createInquiry(env, body) {
 }
 
 async function uploadArt(env, auth, body) {
+  const subscriptionError = await requireSubscribed(env, auth.business.id);
+  if (subscriptionError) return subscriptionError;
+
   const image = clean(body.image);
   const match = image.match(/^data:(image\/(?:png|jpeg|webp|gif|svg\+xml));base64,(.+)$/);
   if (!match) return json({ error: "Art upload must be a base64 image data URL." }, 400);
@@ -395,12 +482,156 @@ async function uploadArt(env, auth, body) {
   return json({ ok: true, art }, 201);
 }
 
+function stripeTimestamp(seconds) {
+  return seconds ? new Date(Number(seconds) * 1000).toISOString() : "";
+}
+
+function subscriptionPriceId(subscription) {
+  return subscription?.items?.data?.[0]?.price?.id || "";
+}
+
+async function upsertSubscription(env, payload) {
+  const now = nowIso();
+  await env.DB.prepare(
+    `INSERT INTO subscriptions (
+      id, business_id, stripe_customer_id, stripe_subscription_id, stripe_price_id,
+      status, current_period_end, cancel_at_period_end, last_event_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(stripe_subscription_id) DO UPDATE SET
+      business_id = excluded.business_id,
+      stripe_customer_id = excluded.stripe_customer_id,
+      stripe_price_id = excluded.stripe_price_id,
+      status = excluded.status,
+      current_period_end = excluded.current_period_end,
+      cancel_at_period_end = excluded.cancel_at_period_end,
+      last_event_id = excluded.last_event_id,
+      updated_at = excluded.updated_at`
+  )
+    .bind(
+      payload.id || randomId("sub"),
+      payload.businessId,
+      payload.stripeCustomerId || "",
+      payload.stripeSubscriptionId,
+      payload.stripePriceId || "",
+      payload.status || "incomplete",
+      payload.currentPeriodEnd || "",
+      payload.cancelAtPeriodEnd ? 1 : 0,
+      payload.lastEventId || "",
+      now,
+      now
+    )
+    .run();
+}
+
+async function businessIdForSubscription(env, stripeSubscriptionId, stripeCustomerId = "") {
+  const bySubscription = stripeSubscriptionId
+    ? await env.DB.prepare("SELECT business_id FROM subscriptions WHERE stripe_subscription_id = ? LIMIT 1")
+        .bind(stripeSubscriptionId)
+        .first()
+    : null;
+  if (bySubscription?.business_id) return bySubscription.business_id;
+
+  const byCustomer = stripeCustomerId
+    ? await env.DB.prepare("SELECT business_id FROM subscriptions WHERE stripe_customer_id = ? ORDER BY updated_at DESC LIMIT 1")
+        .bind(stripeCustomerId)
+        .first()
+    : null;
+  return byCustomer?.business_id || "";
+}
+
+async function handleStripeWebhook(request, env) {
+  const rawBody = await request.text();
+  await verifyStripeSignature(rawBody, request.headers.get("Stripe-Signature"), env.STRIPE_WEBHOOK_SECRET);
+  const event = JSON.parse(rawBody);
+
+  const seen = await env.DB.prepare("SELECT id FROM stripe_events WHERE id = ? LIMIT 1").bind(event.id).first();
+  if (seen) return json({ received: true, duplicate: true });
+
+  const object = event.data?.object || {};
+  const processedAt = nowIso();
+
+  if (event.type === "checkout.session.completed") {
+    const businessId = clean(object.client_reference_id);
+    const subscriptionId = typeof object.subscription === "string" ? object.subscription : object.subscription?.id;
+    if (businessId && subscriptionId) {
+      const business = await getBusiness(env, businessId);
+      if (business) {
+        await upsertSubscription(env, {
+          businessId: business.id,
+          stripeCustomerId: typeof object.customer === "string" ? object.customer : object.customer?.id,
+          stripeSubscriptionId: subscriptionId,
+          status: object.payment_status === "paid" ? "active" : "incomplete",
+          lastEventId: event.id
+        });
+      }
+    }
+  }
+
+  if (event.type === "customer.subscription.created" || event.type === "customer.subscription.updated") {
+    const businessId = await businessIdForSubscription(
+      env,
+      object.id,
+      typeof object.customer === "string" ? object.customer : object.customer?.id
+    );
+    if (businessId) {
+      await upsertSubscription(env, {
+        businessId,
+        stripeCustomerId: typeof object.customer === "string" ? object.customer : object.customer?.id,
+        stripeSubscriptionId: object.id,
+        stripePriceId: subscriptionPriceId(object),
+        status: object.status,
+        currentPeriodEnd: stripeTimestamp(object.current_period_end),
+        cancelAtPeriodEnd: Boolean(object.cancel_at_period_end),
+        lastEventId: event.id
+      });
+    }
+  }
+
+  if (event.type === "customer.subscription.deleted") {
+    await env.DB.prepare(
+      "UPDATE subscriptions SET status = ?, current_period_end = ?, cancel_at_period_end = ?, last_event_id = ?, updated_at = ? WHERE stripe_subscription_id = ?"
+    )
+      .bind(
+        object.status || "canceled",
+        stripeTimestamp(object.current_period_end),
+        object.cancel_at_period_end ? 1 : 0,
+        event.id,
+        processedAt,
+        object.id
+      )
+      .run();
+  }
+
+  if (event.type === "invoice.paid" || event.type === "invoice.payment_failed") {
+    const subscriptionId = typeof object.subscription === "string" ? object.subscription : object.subscription?.id;
+    const status = event.type === "invoice.paid" ? "active" : "past_due";
+    const periodEnd = object.lines?.data?.[0]?.period?.end;
+    await env.DB.prepare(
+      "UPDATE subscriptions SET status = ?, current_period_end = COALESCE(NULLIF(?, ''), current_period_end), last_event_id = ?, updated_at = ? WHERE stripe_subscription_id = ?"
+    )
+      .bind(status, stripeTimestamp(periodEnd), event.id, processedAt, subscriptionId || "")
+      .run();
+  }
+
+  await env.DB.prepare(
+    "INSERT INTO stripe_events (id, type, processed_at, payload_json) VALUES (?, ?, ?, ?)"
+  )
+    .bind(event.id, event.type, processedAt, rawBody)
+    .run();
+
+  return json({ received: true });
+}
+
 async function api(request, env) {
   const url = new URL(request.url);
   const method = request.method;
 
   if (method === "GET" && url.pathname === "/api/health") {
     return json({ ok: true, service: "hollerandson-cloudflare", time: nowIso() });
+  }
+
+  if (method === "POST" && url.pathname === "/api/stripe/webhook") {
+    return handleStripeWebhook(request, env);
   }
 
   if (method === "GET" && url.pathname === "/api/parlors") return searchParlors(env, url);
@@ -459,16 +690,20 @@ async function api(request, env) {
 
   if (method === "GET" && url.pathname === "/api/employee/dashboard") {
     const businessId = auth.business.id;
-    const [art, inquiries, appointments, inbox, customers] = await Promise.all([
-      getArt(env, businessId),
-      env.DB.prepare("SELECT *, customer_name AS customerName, contact_method AS contactMethod, employee_notes AS employeeNotes, created_at AS createdAt FROM inquiries WHERE business_id = ? ORDER BY created_at DESC").bind(businessId).all(),
-      env.DB.prepare("SELECT *, customer_name AS customerName, contact_method AS contactMethod, duration_minutes AS durationMinutes, created_at AS createdAt FROM appointments WHERE business_id = ? ORDER BY start ASC").bind(businessId).all(),
-      env.DB.prepare("SELECT *, from_name AS fromName, from_contact AS fromContact, created_at AS createdAt FROM inbox WHERE business_id = ? ORDER BY created_at DESC").bind(businessId).all(),
-      env.DB.prepare("SELECT DISTINCT c.* FROM customers c JOIN inquiries i ON i.customer_id = c.id WHERE i.business_id = ? ORDER BY c.updated_at DESC").bind(businessId).all()
-    ]);
+    const [art, subscription] = await Promise.all([getArt(env, businessId), getSubscription(env, businessId)]);
+    const access = accessForSubscription(subscription);
+    const [inquiries, appointments, inbox, customers] = access.isSubscribed
+      ? await Promise.all([
+          env.DB.prepare("SELECT *, customer_name AS customerName, contact_method AS contactMethod, employee_notes AS employeeNotes, created_at AS createdAt FROM inquiries WHERE business_id = ? ORDER BY created_at DESC").bind(businessId).all(),
+          env.DB.prepare("SELECT *, customer_name AS customerName, contact_method AS contactMethod, duration_minutes AS durationMinutes, created_at AS createdAt FROM appointments WHERE business_id = ? ORDER BY start ASC").bind(businessId).all(),
+          env.DB.prepare("SELECT *, from_name AS fromName, from_contact AS fromContact, created_at AS createdAt FROM inbox WHERE business_id = ? ORDER BY created_at DESC").bind(businessId).all(),
+          env.DB.prepare("SELECT DISTINCT c.* FROM customers c JOIN inquiries i ON i.customer_id = c.id WHERE i.business_id = ? ORDER BY c.updated_at DESC").bind(businessId).all()
+        ])
+      : [{ results: [] }, { results: [] }, { results: [] }, { results: [] }];
     return json({
       employee: auth.employee,
       business: publicBusiness(auth.business, art),
+      access,
       inquiries: inquiries.results || [],
       appointments: appointments.results || [],
       inbox: (inbox.results || []).map((message) => ({ ...message, delivery: parseJson(message.delivery_json, {}) })),
@@ -477,6 +712,9 @@ async function api(request, env) {
   }
 
   if (method === "PATCH" && url.pathname === "/api/business/profile") {
+    const subscriptionError = await requireSubscribed(env, auth.business.id);
+    if (subscriptionError) return subscriptionError;
+
     const body = await request.json();
     const socials = {
       instagram: clean(body.instagram),
@@ -517,6 +755,9 @@ async function api(request, env) {
 
   const artDelete = url.pathname.match(/^\/api\/business\/art\/([^/]+)$/);
   if (method === "DELETE" && artDelete) {
+    const subscriptionError = await requireSubscribed(env, auth.business.id);
+    if (subscriptionError) return subscriptionError;
+
     const art = await env.DB.prepare("SELECT * FROM art WHERE id = ? AND business_id = ? LIMIT 1").bind(decodeURIComponent(artDelete[1]), auth.business.id).first();
     if (art?.r2_key) await env.ART_BUCKET.delete(art.r2_key);
     await env.DB.prepare("DELETE FROM art WHERE id = ? AND business_id = ?").bind(decodeURIComponent(artDelete[1]), auth.business.id).run();
@@ -524,6 +765,9 @@ async function api(request, env) {
   }
 
   if (method === "POST" && url.pathname === "/api/business/appointments") {
+    const subscriptionError = await requireSubscribed(env, auth.business.id);
+    if (subscriptionError) return subscriptionError;
+
     const body = await request.json();
     const appointment = {
       id: randomId("appt"),
@@ -553,6 +797,9 @@ async function api(request, env) {
 
   const inquiryPatch = url.pathname.match(/^\/api\/inquiries\/([^/]+)$/);
   if (method === "PATCH" && inquiryPatch) {
+    const subscriptionError = await requireSubscribed(env, auth.business.id);
+    if (subscriptionError) return subscriptionError;
+
     const body = await request.json();
     await env.DB.prepare("UPDATE inquiries SET status = ?, employee_notes = ? WHERE id = ? AND business_id = ?")
       .bind(clean(body.status || "new"), clean(body.notes), decodeURIComponent(inquiryPatch[1]), auth.business.id)
@@ -582,4 +829,3 @@ export default {
     }
   }
 };
-

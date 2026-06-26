@@ -144,6 +144,7 @@
             <div>
               <p class="eyebrow">Employee dashboard</p>
               <h2 id="dashboard-title">Studio dashboard</h2>
+              <p class="muted" id="subscription-status">Subscription status loading...</p>
             </div>
             <div class="dashboard-actions">
               <span id="employee-badge"></span>
@@ -303,11 +304,7 @@
                 </p>
               </div>
               <div class="stripe-box">
-                <stripe-buy-button
-                  buy-button-id="buy_btn_1TmRvsGJtywdCBcEmAmvEuWF"
-                  publishable-key="pk_live_51TdF41GJtywdCBcEVXcvUM8SB5O6Y34OCA0nrPqvlfa5RQfmSj5TroPhVQq8heMzbJZuEhxoOwVXC7sYrpSBybdk002vxsC9AC"
-                >
-                </stripe-buy-button>
+                <div id="stripe-buy-button-container"></div>
               </div>
             </div>
           </section>
@@ -361,7 +358,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js" defer></script>
+    <script src="/app.js?v=20260626-subscriptions" defer></script>
   </body>
 </html>
-

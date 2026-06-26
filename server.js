@@ -280,6 +280,22 @@ function createSeedStore() {
         updatedAt: createdAt
       }
     ],
+    subscriptions: [
+      {
+        id: "sub_demo_holler",
+        businessId: "holler-and-son",
+        stripeCustomerId: "cus_demo_holler",
+        stripeSubscriptionId: "sub_demo_holler",
+        stripePriceId: "price_demo_monthly",
+        status: "active",
+        currentPeriodEnd: "2099-12-31T23:59:59.000Z",
+        cancelAtPeriodEnd: false,
+        lastEventId: "seed",
+        createdAt,
+        updatedAt: createdAt
+      }
+    ],
+    stripeEvents: [],
     customers: [],
     inquiries: [],
     appointments: [
@@ -330,7 +346,36 @@ async function ensureStore() {
 async function readStore() {
   await ensureStore();
   const raw = await fs.readFile(STORE_PATH, "utf8");
-  return JSON.parse(raw);
+  const store = JSON.parse(raw);
+  let changed = false;
+  if (!Array.isArray(store.subscriptions)) {
+    store.subscriptions = [
+      {
+        id: "sub_demo_holler",
+        businessId: "holler-and-son",
+        stripeCustomerId: "cus_demo_holler",
+        stripeSubscriptionId: "sub_demo_holler",
+        stripePriceId: "price_demo_monthly",
+        status: "active",
+        currentPeriodEnd: "2099-12-31T23:59:59.000Z",
+        cancelAtPeriodEnd: false,
+        lastEventId: "migration",
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      }
+    ];
+    changed = true;
+  }
+  if (!Array.isArray(store.stripeEvents)) {
+    store.stripeEvents = [];
+    changed = true;
+  }
+  if (!Array.isArray(store.customers)) {
+    store.customers = [];
+    changed = true;
+  }
+  if (changed) await writeStore(store);
+  return store;
 }
 
 async function writeStore(store) {
@@ -454,6 +499,38 @@ function findAppointment(store, businessId, appointmentId) {
   );
 }
 
+function getSubscription(store, businessId) {
+  return [...(store.subscriptions || [])]
+    .filter((subscription) => subscription.businessId === businessId)
+    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
+}
+
+function accessForSubscription(subscription) {
+  const activeStatuses = new Set(["active", "trialing"]);
+  const status = subscription?.status || "none";
+  const endsAt = subscription?.currentPeriodEnd || "";
+  const periodStillValid = !endsAt || new Date(endsAt).getTime() > Date.now();
+  const isSubscribed = Boolean(subscription && activeStatuses.has(status) && periodStillValid);
+  return {
+    isSubscribed,
+    status,
+    currentPeriodEnd: endsAt,
+    cancelAtPeriodEnd: Boolean(subscription?.cancelAtPeriodEnd),
+    stripeCustomerId: subscription?.stripeCustomerId || "",
+    stripeSubscriptionId: subscription?.stripeSubscriptionId || ""
+  };
+}
+
+function subscriptionRequiredResponse(store, auth) {
+  const access = accessForSubscription(getSubscription(store, auth.business.id));
+  return access.isSubscribed
+    ? null
+    : {
+        error: "A current subscription is required for this business action.",
+        access
+      };
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -561,6 +638,174 @@ function readJsonBody(req) {
   });
 }
 
+function readTextBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        reject(new Error("Request body is too large."));
+        req.destroy();
+        return;
+      }
+      raw += chunk;
+    });
+    req.on("end", () => resolve(raw));
+    req.on("error", reject);
+  });
+}
+
+function timingSafeEqualHex(a, b) {
+  const left = Buffer.from(String(a || ""), "hex");
+  const right = Buffer.from(String(b || ""), "hex");
+  if (left.length !== right.length) return false;
+  return crypto.timingSafeEqual(left, right);
+}
+
+function verifyStripeSignature(rawBody, signatureHeader, endpointSecret) {
+  if (!endpointSecret) throw new Error("STRIPE_WEBHOOK_SECRET is not configured.");
+  if (!signatureHeader) throw new Error("Missing Stripe-Signature header.");
+  const timestamp = signatureHeader
+    .split(",")
+    .find((part) => part.startsWith("t="))
+    ?.slice(2);
+  const signatures = signatureHeader
+    .split(",")
+    .filter((part) => part.startsWith("v1="))
+    .map((part) => part.slice(3));
+  if (!timestamp || !signatures.length) throw new Error("Invalid Stripe-Signature header.");
+  const age = Math.abs(Date.now() / 1000 - Number(timestamp));
+  if (age > 300) throw new Error("Stripe webhook timestamp is outside tolerance.");
+  const expected = crypto
+    .createHmac("sha256", endpointSecret)
+    .update(`${timestamp}.${rawBody}`)
+    .digest("hex");
+  if (!signatures.some((signature) => timingSafeEqualHex(signature, expected))) {
+    throw new Error("Stripe webhook signature verification failed.");
+  }
+}
+
+function stripeTimestamp(seconds) {
+  return seconds ? new Date(Number(seconds) * 1000).toISOString() : "";
+}
+
+function subscriptionPriceId(subscription) {
+  return subscription?.items?.data?.[0]?.price?.id || "";
+}
+
+function upsertSubscription(store, payload) {
+  const now = nowIso();
+  const existing = store.subscriptions.find(
+    (subscription) => subscription.stripeSubscriptionId === payload.stripeSubscriptionId
+  );
+  const next = {
+    id: existing?.id || payload.id || randomId("sub"),
+    businessId: payload.businessId,
+    stripeCustomerId: payload.stripeCustomerId || "",
+    stripeSubscriptionId: payload.stripeSubscriptionId,
+    stripePriceId: payload.stripePriceId || existing?.stripePriceId || "",
+    status: payload.status || "incomplete",
+    currentPeriodEnd: payload.currentPeriodEnd || existing?.currentPeriodEnd || "",
+    cancelAtPeriodEnd: Boolean(payload.cancelAtPeriodEnd),
+    lastEventId: payload.lastEventId || "",
+    createdAt: existing?.createdAt || now,
+    updatedAt: now
+  };
+  if (existing) Object.assign(existing, next);
+  else store.subscriptions.push(next);
+}
+
+function businessIdForSubscription(store, stripeSubscriptionId, stripeCustomerId = "") {
+  const bySubscription = store.subscriptions.find(
+    (subscription) => subscription.stripeSubscriptionId === stripeSubscriptionId
+  );
+  if (bySubscription) return bySubscription.businessId;
+  const byCustomer = [...store.subscriptions]
+    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
+    .find((subscription) => subscription.stripeCustomerId === stripeCustomerId);
+  return byCustomer?.businessId || "";
+}
+
+async function handleStripeWebhook(req, res, store) {
+  const rawBody = await readTextBody(req);
+  verifyStripeSignature(rawBody, req.headers["stripe-signature"], process.env.STRIPE_WEBHOOK_SECRET);
+  const event = JSON.parse(rawBody);
+  if (store.stripeEvents.some((seen) => seen.id === event.id)) {
+    return sendJson(res, 200, { received: true, duplicate: true });
+  }
+
+  const object = event.data?.object || {};
+  const processedAt = nowIso();
+
+  if (event.type === "checkout.session.completed") {
+    const business = findBusiness(store, cleanString(object.client_reference_id));
+    const subscriptionId = typeof object.subscription === "string" ? object.subscription : object.subscription?.id;
+    if (business && subscriptionId) {
+      upsertSubscription(store, {
+        businessId: business.id,
+        stripeCustomerId: typeof object.customer === "string" ? object.customer : object.customer?.id,
+        stripeSubscriptionId: subscriptionId,
+        status: object.payment_status === "paid" ? "active" : "incomplete",
+        lastEventId: event.id
+      });
+    }
+  }
+
+  if (event.type === "customer.subscription.created" || event.type === "customer.subscription.updated") {
+    const businessId = businessIdForSubscription(
+      store,
+      object.id,
+      typeof object.customer === "string" ? object.customer : object.customer?.id
+    );
+    if (businessId) {
+      upsertSubscription(store, {
+        businessId,
+        stripeCustomerId: typeof object.customer === "string" ? object.customer : object.customer?.id,
+        stripeSubscriptionId: object.id,
+        stripePriceId: subscriptionPriceId(object),
+        status: object.status,
+        currentPeriodEnd: stripeTimestamp(object.current_period_end),
+        cancelAtPeriodEnd: Boolean(object.cancel_at_period_end),
+        lastEventId: event.id
+      });
+    }
+  }
+
+  if (event.type === "customer.subscription.deleted") {
+    const existing = store.subscriptions.find((subscription) => subscription.stripeSubscriptionId === object.id);
+    if (existing) {
+      existing.status = object.status || "canceled";
+      existing.currentPeriodEnd = stripeTimestamp(object.current_period_end);
+      existing.cancelAtPeriodEnd = Boolean(object.cancel_at_period_end);
+      existing.lastEventId = event.id;
+      existing.updatedAt = processedAt;
+    }
+  }
+
+  if (event.type === "invoice.paid" || event.type === "invoice.payment_failed") {
+    const subscriptionId = typeof object.subscription === "string" ? object.subscription : object.subscription?.id;
+    const existing = store.subscriptions.find(
+      (subscription) => subscription.stripeSubscriptionId === subscriptionId
+    );
+    if (existing) {
+      existing.status = event.type === "invoice.paid" ? "active" : "past_due";
+      existing.currentPeriodEnd = stripeTimestamp(object.lines?.data?.[0]?.period?.end) || existing.currentPeriodEnd;
+      existing.lastEventId = event.id;
+      existing.updatedAt = processedAt;
+    }
+  }
+
+  store.stripeEvents.push({
+    id: event.id,
+    type: event.type,
+    processedAt,
+    payload: event
+  });
+  await writeStore(store);
+  return sendJson(res, 200, { received: true });
+}
+
 function getBearerToken(req) {
   const header = req.headers.authorization || "";
   const match = header.match(/^Bearer\s+(.+)$/i);
@@ -615,6 +860,10 @@ async function handleApi(req, res, url) {
 
   if (method === "GET" && pathname === "/api/health") {
     return sendJson(res, 200, { ok: true, service: "hollerandson", time: nowIso() });
+  }
+
+  if (method === "POST" && pathname === "/api/stripe/webhook") {
+    return handleStripeWebhook(req, res, store);
   }
 
   if (method === "GET" && pathname === "/api/parlors") {
@@ -763,6 +1012,7 @@ async function handleApi(req, res, url) {
 
   if (method === "GET" && pathname === "/api/employee/dashboard") {
     const businessId = auth.business.id;
+    const access = accessForSubscription(getSubscription(store, businessId));
     return sendJson(res, 200, {
       employee: {
         id: auth.employee.id,
@@ -771,26 +1021,38 @@ async function handleApi(req, res, url) {
         role: auth.employee.role
       },
       business: publicBusiness(auth.business),
-      inquiries: store.inquiries
-        .filter((inquiry) => inquiry.businessId === businessId)
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-      appointments: store.appointments
-        .filter((appointment) => appointment.businessId === businessId)
-        .sort((a, b) => a.start.localeCompare(b.start)),
-      customers: store.customers
-        .filter((customer) =>
-          store.inquiries.some(
-            (inquiry) => inquiry.businessId === businessId && inquiry.customerId === customer.id
-          )
-        )
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-      inbox: store.inbox
-        .filter((message) => message.businessId === businessId)
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      access,
+      inquiries: access.isSubscribed
+        ? store.inquiries
+            .filter((inquiry) => inquiry.businessId === businessId)
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        : [],
+      appointments: access.isSubscribed
+        ? store.appointments
+            .filter((appointment) => appointment.businessId === businessId)
+            .sort((a, b) => a.start.localeCompare(b.start))
+        : [],
+      customers: access.isSubscribed
+        ? store.customers
+            .filter((customer) =>
+              store.inquiries.some(
+                (inquiry) => inquiry.businessId === businessId && inquiry.customerId === customer.id
+              )
+            )
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        : [],
+      inbox: access.isSubscribed
+        ? store.inbox
+            .filter((message) => message.businessId === businessId)
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        : []
     });
   }
 
   if (method === "PATCH" && pathname === "/api/business/profile") {
+    const subscriptionError = subscriptionRequiredResponse(store, auth);
+    if (subscriptionError) return sendJson(res, 402, subscriptionError);
+
     const body = await readJsonBody(req);
     const business = auth.business;
     business.name = cleanString(body.name, business.name);
@@ -822,6 +1084,9 @@ async function handleApi(req, res, url) {
   }
 
   if (method === "POST" && pathname === "/api/business/art") {
+    const subscriptionError = subscriptionRequiredResponse(store, auth);
+    if (subscriptionError) return sendJson(res, 402, subscriptionError);
+
     const body = await readJsonBody(req);
     const image = cleanString(body.image);
     if (!image.startsWith("data:image/")) {
@@ -843,6 +1108,9 @@ async function handleApi(req, res, url) {
 
   const artDeleteMatch = pathname.match(/^\/api\/business\/art\/([^/]+)$/);
   if (method === "DELETE" && artDeleteMatch) {
+    const subscriptionError = subscriptionRequiredResponse(store, auth);
+    if (subscriptionError) return sendJson(res, 402, subscriptionError);
+
     const artId = decodeURIComponent(artDeleteMatch[1]);
     auth.business.art = (auth.business.art || []).filter((art) => art.id !== artId);
     auth.business.updatedAt = nowIso();
@@ -851,6 +1119,9 @@ async function handleApi(req, res, url) {
   }
 
   if (method === "POST" && pathname === "/api/business/appointments") {
+    const subscriptionError = subscriptionRequiredResponse(store, auth);
+    if (subscriptionError) return sendJson(res, 402, subscriptionError);
+
     const body = await readJsonBody(req);
     const start = new Date(`${body.date}T${body.time}:00`).toISOString();
     const appointment = {
@@ -878,6 +1149,9 @@ async function handleApi(req, res, url) {
 
   const appointmentPatchMatch = pathname.match(/^\/api\/business\/appointments\/([^/]+)$/);
   if (method === "PATCH" && appointmentPatchMatch) {
+    const subscriptionError = subscriptionRequiredResponse(store, auth);
+    if (subscriptionError) return sendJson(res, 402, subscriptionError);
+
     const body = await readJsonBody(req);
     const appointment = findAppointment(store, auth.business.id, decodeURIComponent(appointmentPatchMatch[1]));
     if (!appointment) return sendJson(res, 404, { error: "Appointment not found." });
@@ -894,6 +1168,9 @@ async function handleApi(req, res, url) {
 
   const inquiryPatchMatch = pathname.match(/^\/api\/inquiries\/([^/]+)$/);
   if (method === "PATCH" && inquiryPatchMatch) {
+    const subscriptionError = subscriptionRequiredResponse(store, auth);
+    if (subscriptionError) return sendJson(res, 402, subscriptionError);
+
     const body = await readJsonBody(req);
     const inquiry = store.inquiries.find(
       (candidate) => candidate.id === decodeURIComponent(inquiryPatchMatch[1]) && candidate.businessId === auth.business.id

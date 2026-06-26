@@ -33,8 +33,16 @@ const nameResults = searchBusinesses(store, new URLSearchParams({ query: "blackl
 assert.ok(nameResults.parlors.some((business) => business.id === "blackline-borough"));
 
 const index = fs.readFileSync(path.join(root, "public/index.html"), "utf8");
-assert.ok(index.includes("buy_btn_1TmRvsGJtywdCBcEmAmvEuWF"), "Stripe buy button is present");
-assert.ok(index.includes("pk_live_51TdF41GJtywdCBcE"), "Stripe publishable key is present");
+const app = fs.readFileSync(path.join(root, "public/app.js"), "utf8");
+const worker = fs.readFileSync(path.join(root, "cloudflare/worker.js"), "utf8");
+const schema = fs.readFileSync(path.join(root, "cloudflare/schema.sql"), "utf8");
+assert.ok(app.includes("buy_btn_1TmRvsGJtywdCBcEmAmvEuWF"), "Stripe buy button ID is present");
+assert.ok(app.includes("pk_live_51TdF41GJtywdCBcE"), "Stripe publishable key is present");
+assert.ok(app.includes("client-reference-id"), "Stripe buy button maps checkout to a business");
+assert.ok(index.includes("stripe-buy-button-container"), "Stripe buy button container is present");
+assert.ok(worker.includes("/api/stripe/webhook"), "Cloudflare Stripe webhook route is present");
+assert.ok(worker.includes("verifyStripeSignature"), "Cloudflare webhook signature verification is present");
+assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS subscriptions"), "D1 subscription table is present");
+assert.ok(schema.includes("CREATE TABLE IF NOT EXISTS stripe_events"), "D1 Stripe event idempotency table is present");
 
 console.log("Holler & Son checks passed.");
-

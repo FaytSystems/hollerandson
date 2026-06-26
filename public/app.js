@@ -7,6 +7,10 @@ const state = {
   customerPrefs: JSON.parse(localStorage.getItem("hs_customer_prefs") || "{}")
 };
 
+const STRIPE_BUY_BUTTON_ID = "buy_btn_1TmRvsGJtywdCBcEmAmvEuWF";
+const STRIPE_PUBLISHABLE_KEY =
+  "pk_live_51TdF41GJtywdCBcEVXcvUM8SB5O6Y34OCA0nrPqvlfa5RQfmSj5TroPhVQq8heMzbJZuEhxoOwVXC7sYrpSBybdk002vxsC9AC";
+
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
@@ -54,6 +58,20 @@ function shortDate(value) {
     day: "numeric",
     year: "numeric"
   }).format(new Date(value));
+}
+
+function hasSubscriptionAccess() {
+  return Boolean(state.dashboard?.access?.isSubscribed);
+}
+
+function gatedMessage(feature) {
+  return `
+    <article class="mini-panel">
+      <p class="eyebrow">Subscription required</p>
+      <h3>${escapeHtml(feature)} unlocks after the studio plan is active.</h3>
+      <p class="muted">Use the Subscription tab to complete the monthly Stripe plan. Stripe will notify the site by webhook and access will update automatically.</p>
+    </article>
+  `;
 }
 
 function isoDate(daysFromNow = 1) {
@@ -339,6 +357,7 @@ async function loadDashboard() {
 }
 
 function renderDashboard() {
+  renderSubscriptionStatus();
   renderCalendar();
   renderInquiries();
   renderMessages();
@@ -347,7 +366,35 @@ function renderDashboard() {
   renderCustomers();
 }
 
+function renderSubscriptionStatus() {
+  const access = state.dashboard?.access || {};
+  const status = access.status || "none";
+  const currentPeriod = access.currentPeriodEnd ? ` through ${shortDate(access.currentPeriodEnd)}` : "";
+  $("#subscription-status").textContent = access.isSubscribed
+    ? `Subscription active${currentPeriod}. Paid business tools are unlocked.`
+    : `Subscription ${status}. Paid business tools are locked until Stripe confirms an active plan.`;
+
+  const container = $("#stripe-buy-button-container");
+  if (!container || !state.dashboard?.business) return;
+  container.innerHTML = "";
+  const button = document.createElement("stripe-buy-button");
+  button.setAttribute("buy-button-id", STRIPE_BUY_BUTTON_ID);
+  button.setAttribute("publishable-key", STRIPE_PUBLISHABLE_KEY);
+  button.setAttribute("client-reference-id", state.dashboard.business.id);
+  if (state.dashboard.employee?.email) {
+    button.setAttribute("customer-email", state.dashboard.employee.email);
+  }
+  container.appendChild(button);
+}
+
 function renderCalendar() {
+  $$("#employee-appointment-form input, #employee-appointment-form select, #employee-appointment-form textarea, #employee-appointment-form button").forEach((control) => {
+    control.disabled = !hasSubscriptionAccess();
+  });
+  if (!hasSubscriptionAccess()) {
+    $("#calendar-list").innerHTML = gatedMessage("Calendar management");
+    return;
+  }
   const appointments = state.dashboard?.appointments || [];
   const list = $("#calendar-list");
   if (!appointments.length) {
@@ -375,6 +422,10 @@ function renderCalendar() {
 }
 
 function renderInquiries() {
+  if (!hasSubscriptionAccess()) {
+    $("#inquiry-list").innerHTML = gatedMessage("Inquiry management");
+    return;
+  }
   const inquiries = state.dashboard?.inquiries || [];
   const list = $("#inquiry-list");
   if (!inquiries.length) {
@@ -407,6 +458,10 @@ function renderInquiries() {
 }
 
 function renderMessages() {
+  if (!hasSubscriptionAccess()) {
+    $("#message-list").innerHTML = gatedMessage("Email notification history");
+    return;
+  }
   const messages = state.dashboard?.inbox || [];
   const list = $("#message-list");
   if (!messages.length) {
@@ -455,10 +510,14 @@ function fillProfileForm() {
   form.specialties.value = (business.specialties || []).join(", ");
   form.artists.value = (business.artists || []).join(", ");
   form.bio.value = business.bio || "";
+  $$("#profile-form input, #profile-form textarea, #profile-form button").forEach((control) => {
+    control.disabled = !hasSubscriptionAccess();
+  });
 }
 
 async function saveProfile(event) {
   event.preventDefault();
+  if (!hasSubscriptionAccess()) return toast("Activate the studio subscription before editing the public page.");
   const payload = formToObject(event.currentTarget);
   const response = await api("/api/business/profile", {
     method: "PATCH",
@@ -475,6 +534,13 @@ async function saveProfile(event) {
 }
 
 function renderDashboardArt() {
+  $$("#art-form input, #art-form textarea, #art-form button").forEach((control) => {
+    control.disabled = !hasSubscriptionAccess();
+  });
+  if (!hasSubscriptionAccess()) {
+    $("#dashboard-art").innerHTML = gatedMessage("Art uploads");
+    return;
+  }
   const art = state.dashboard?.business?.art || [];
   const wall = $("#dashboard-art");
   if (!art.length) {
@@ -508,6 +574,7 @@ function fileToDataUrl(file) {
 
 async function uploadArt(event) {
   event.preventDefault();
+  if (!hasSubscriptionAccess()) return toast("Activate the studio subscription before uploading art.");
   const form = event.currentTarget;
   const file = form.image.files[0];
   if (!file) return;
@@ -534,6 +601,10 @@ async function uploadArt(event) {
 }
 
 function renderCustomers() {
+  if (!hasSubscriptionAccess()) {
+    $("#customer-table").innerHTML = '<tr><td colspan="5">Subscription required to view saved customers.</td></tr>';
+    return;
+  }
   const rows = state.dashboard?.customers || [];
   const body = $("#customer-table");
   if (!rows.length) {
@@ -557,6 +628,7 @@ function renderCustomers() {
 
 async function addEmployeeAppointment(event) {
   event.preventDefault();
+  if (!hasSubscriptionAccess()) return toast("Activate the studio subscription before adding appointments.");
   const payload = formToObject(event.currentTarget);
   await api("/api/business/appointments", {
     method: "POST",
@@ -568,6 +640,7 @@ async function addEmployeeAppointment(event) {
 }
 
 async function updateInquiryStatus(value) {
+  if (!hasSubscriptionAccess()) return toast("Activate the studio subscription before updating inquiries.");
   const [id, status] = value.split(":");
   await api(`/api/inquiries/${encodeURIComponent(id)}`, {
     method: "PATCH",
@@ -578,6 +651,7 @@ async function updateInquiryStatus(value) {
 }
 
 async function deleteArt(id) {
+  if (!hasSubscriptionAccess()) return toast("Activate the studio subscription before removing art.");
   await api(`/api/business/art/${encodeURIComponent(id)}`, { method: "DELETE" });
   toast("Art removed.");
   await loadDashboard();
@@ -671,4 +745,3 @@ init().catch((error) => {
   console.error(error);
   toast(error.message || "Something went wrong.");
 });
-

@@ -112,12 +112,36 @@ CREATE TABLE IF NOT EXISTS inbox (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id TEXT PRIMARY KEY,
+  business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  stripe_customer_id TEXT DEFAULT '',
+  stripe_subscription_id TEXT NOT NULL UNIQUE,
+  stripe_price_id TEXT DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'incomplete',
+  current_period_end TEXT DEFAULT '',
+  cancel_at_period_end INTEGER DEFAULT 0,
+  last_event_id TEXT DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS stripe_events (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  processed_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_businesses_slug ON businesses(slug);
 CREATE INDEX IF NOT EXISTS idx_art_business ON art(business_id);
 CREATE INDEX IF NOT EXISTS idx_inquiries_business ON inquiries(business_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_appointments_business ON appointments(business_id, start);
 CREATE INDEX IF NOT EXISTS idx_inbox_business ON inbox(business_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_employee ON sessions(employee_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_business ON subscriptions(business_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_customer ON subscriptions(stripe_customer_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
 
 INSERT OR IGNORE INTO businesses (
   id, slug, name, address, city, state, postal_code, lat, lng, phone, email, website,
@@ -171,3 +195,19 @@ INSERT OR IGNORE INTO art (
   datetime('now')
 );
 
+INSERT OR IGNORE INTO subscriptions (
+  id, business_id, stripe_customer_id, stripe_subscription_id, stripe_price_id,
+  status, current_period_end, cancel_at_period_end, last_event_id, created_at, updated_at
+) VALUES (
+  'sub_demo_holler',
+  'holler-and-son',
+  'cus_demo_holler',
+  'sub_demo_holler',
+  'price_demo_monthly',
+  'active',
+  '2099-12-31T23:59:59.000Z',
+  0,
+  'seed',
+  datetime('now'),
+  datetime('now')
+);
