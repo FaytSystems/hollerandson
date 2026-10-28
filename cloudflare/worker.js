@@ -1705,12 +1705,11 @@ async function api(request, env) {
 }
 
 async function assets(request, env) {
-  const response = await env.ASSETS.fetch(request);
-  if (response.status !== 404 || request.method !== "GET") return response;
   const url = new URL(request.url);
   // Public invoice routes use the app shell, but are not search landing pages.
-  if (!/^\/pay\/[^/]+\/?$/.test(url.pathname)) return response;
-  url.pathname = "/index.html";
+  if (!/^\/pay\/[^/]+\/?$/.test(url.pathname) || !["GET", "HEAD"].includes(request.method)) return env.ASSETS.fetch(request);
+  // Fetch the canonical asset path internally so an /index.html redirect cannot lose the invoice URL.
+  url.pathname = "/";
   const shell = await env.ASSETS.fetch(new Request(url, request));
   const invoice = new Response(shell.body, shell);
   invoice.headers.set("X-Robots-Tag", "noindex, nofollow");
