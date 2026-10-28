@@ -145,7 +145,7 @@ async function verifyStripeSignature(rawBody, signatureHeader, endpointSecret) {
   if (!timestamp || !signatures.length) throw new Error("Invalid Stripe-Signature header.");
 
   const age = Math.abs(Date.now() / 1000 - Number(timestamp));
-  if (age > 300) throw new Error("Stripe webhook timestamp is outside tolerance.");
+  if (!Number.isFinite(age) || age > 300) throw new Error("Stripe webhook timestamp is outside tolerance.");
 
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -1044,9 +1044,16 @@ async function businessIdForSubscription(env, stripeSubscriptionId, stripeCustom
 }
 
 async function handleStripeWebhook(request, env) {
+  if (!env.STRIPE_WEBHOOK_SECRET) return json({ error: "Webhook signing secret is not configured." }, 503);
   const rawBody = await request.text();
-  await verifyStripeSignature(rawBody, request.headers.get("Stripe-Signature"), env.STRIPE_WEBHOOK_SECRET);
-  const event = JSON.parse(rawBody);
+  try {
+    await verifyStripeSignature(rawBody, request.headers.get("Stripe-Signature"), env.STRIPE_WEBHOOK_SECRET);
+  } catch {
+    return json({ error: "Invalid Stripe signature." }, 400);
+  }
+  let event;
+  try { event = JSON.parse(rawBody); } catch { return json({ error: "Invalid webhook JSON." }, 400); }
+  if (!event.id || !event.type || !event.data?.object) return json({ error: "Invalid webhook event." }, 400);
 
   const seen = await env.DB.prepare("SELECT id FROM stripe_events WHERE id = ? LIMIT 1").bind(event.id).first();
   if (seen) return json({ received: true, duplicate: true });
@@ -1709,8 +1716,8 @@ export default {
   async fetch(request, env) {
     try {
       const url = new URL(request.url);
-      if (url.pathname.startsWith("/api/")) return api(request, env);
-      return assets(request, env);
+      if (url.pathname.startsWith("/api/")) return await api(request, env);
+      return await assets(request, env);
     } catch (error) {
       return json({ error: error.message || "Server error." }, 500);
     }
