@@ -1708,8 +1708,13 @@ async function assets(request, env) {
   const response = await env.ASSETS.fetch(request);
   if (response.status !== 404 || request.method !== "GET") return response;
   const url = new URL(request.url);
+  // Public invoice routes use the app shell, but are not search landing pages.
+  if (!/^\/pay\/[^/]+\/?$/.test(url.pathname)) return response;
   url.pathname = "/index.html";
-  return env.ASSETS.fetch(new Request(url, request));
+  const shell = await env.ASSETS.fetch(new Request(url, request));
+  const invoice = new Response(shell.body, shell);
+  invoice.headers.set("X-Robots-Tag", "noindex, nofollow");
+  return invoice;
 }
 
 export default {

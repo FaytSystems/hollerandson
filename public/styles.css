@@ -20,6 +20,11 @@
     sans-serif;
 }
 
+.public-intro { max-width: 1100px; margin: 0 auto; padding: 2rem clamp(1rem, 4vw, 3rem) 0; }
+.public-intro h1 { font-size: clamp(1.8rem, 4vw, 3rem); line-height: 1.15; margin-bottom: .7rem; }
+.public-intro p { max-width: 780px; color: var(--muted); line-height: 1.65; }
+.public-intro a { color: var(--amber); }
+
 * {
   box-sizing: border-box;
 }
