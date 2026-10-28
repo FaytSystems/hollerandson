@@ -4,6 +4,14 @@ compatibility_date = "2026-06-26"
 workers_dev = true
 preview_urls = true
 
+[[routes]]
+pattern = "hollerandson.com"
+custom_domain = true
+
+[[routes]]
+pattern = "www.hollerandson.com"
+custom_domain = true
+
 # After clearing any existing Pages/DNS hostname conflicts in Cloudflare,
 # add these custom-domain routes back and run `npx wrangler deploy`:
 #
